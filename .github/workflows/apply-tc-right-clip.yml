@@ -20,17 +20,10 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-
           path = Path("modules/emu_graph-2.0.tm")
           text = path.read_text()
-          old = """        set coordscopy2 [ lreplace $coords end-1 end ]
-        set coordscopy2 [ lreplace $coordscopy2 0 1 ]
-"""
-          new = """        set coordscopy2 [ lreplace $coords end-1 end ]
-        set coordscopy2 [ lreplace $coordscopy2 0 1 ]
-        #Keep the 5 pixel graph stroke inside the right plot boundary
-        lset coordscopy2 end-1 [ expr {[lindex $coordscopy2 end-1] - [pad_stroke]} ]
-"""
+          old = "        set coordscopy2 [ lreplace $coords end-1 end ]\n        set coordscopy2 [ lreplace $coordscopy2 0 1 ]\n"
+          new = old + "        #Keep the 5 pixel graph stroke inside the right plot boundary\n        lset coordscopy2 end-1 [ expr {[lindex $coordscopy2 end-1] - [pad_stroke]} ]\n"
           if old not in text:
               raise SystemExit("target block not found")
           path.write_text(text.replace(old, new, 1))
