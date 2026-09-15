@@ -106,7 +106,6 @@ proc patch_neword_invalid_item {lda prefer_storedprocs} {
 # Select PostgreSQL TPROC-C and read the configured connection values.
 dbset db pg
 dbset bm TPROC-C
-upvar #0 configpostgresql configpostgresql
 setlocaltpccvars $configpostgresql
 
 if {[catch {package require Pgtcl} message]} {
@@ -206,7 +205,8 @@ try {
     }
 
     if {[llength $failures] != 0} {
-        error "Rollback regression FAILED:\n  [join $failures \n\ \ ]"
+        set failure_text [join $failures "\n  "]
+        error "Rollback regression FAILED:\n  $failure_text"
     }
 
     puts "PASS: invalid item 100001 rolled back the complete PostgreSQL New Order transaction."
