@@ -51,7 +51,7 @@ if { $genericdictdb eq "" } {
 		    puts "Error deleting SQLite file from $sqlite_hdb_version: $message" 
 	    }
         }
-        #After remove old SQLite, save genericdict from XML to SQLite
+        #After remove old SQLite, save genericdict to SQLite DB
         Dict2SQLite "generic" $genericdict
     } else {
         #Use configration from SQLite
