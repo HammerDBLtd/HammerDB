@@ -52,7 +52,7 @@ if { $genericdictdb eq "" } {
                     puts "Error deleting SQLite file from $sqlite_hdb_version: $message"
             }
         }
-        #After remove old SQLite, save genericdict to SQLite DB
+        #After remove old SQLite, save genericdict from XML to SQLite DB
         Dict2SQLite "generic" $genericdict
     } else {
         #Use configration from SQLite
@@ -84,6 +84,9 @@ foreach { key } [ dict keys $dbdict ] {
     set $dictname $dbconfdict
     set prefix [ dict get $dbdict $key prefix ]
     lappend dbsrclist "$key/$prefix\opt.tcl" "$key/$prefix\oltp.tcl" "$key/$prefix\olap.tcl" "$key/$prefix\otc.tcl" "$key/$prefix\ci.tcl" 
+    if { $key eq "mysql" || $key eq "mariadb" } {
+        lappend dbsrclist "$key/$prefix\ssl.tcl"
+    }
 }
 
 #get_xml_data
@@ -92,4 +95,3 @@ set_global_config $genericdict
 #Make generics global
 tsv::set application genericdict $genericdict
 guid_init
-
