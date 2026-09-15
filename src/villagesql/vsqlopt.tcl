@@ -14,55 +14,46 @@ proc check_vsql_ssl { configdict } {
     }
     #If SSL not enabled return
     if { $vsql_ssl != "true" } {
-        #nothing to check, vsql_ssl_options is not set
         set vsql_ssl_options " -ssl false "
         return
+    }
+    #MySQLtcl supports SSL without CA/certificate files. If none are
+    #configured, enable SSL directly and do not require a CA path.
+    if { $vsql_ssl_ca eq "" && $vsql_ssl_cert eq "" && $vsql_ssl_key eq "" } {
+        set vsql_ssl_options " -ssl true "
+        if { $vsql_ssl_cipher != "server" } { append vsql_ssl_options " -sslcipher $vsql_ssl_cipher " }
+        return
+    }
+    #Certificate options are configured, so the CA path must be valid.
+    if { ![ file isdirectory $capath ] } {
+        tk_messageBox -message "SSL CApath is not a valid directory, disabling SSL"
+        dict set configvillagesql connection vsql_ssl "false"
+        return
+    }
+    #CApath is valid, file entries are not blank, always check CA.
+    if { [ file readable [ file join $capath $vsql_ssl_ca ]] } {
     } else {
-        #SSL is enabled, check that capath is valid
-        if { [ file isdirectory $capath ] } {
-            if { $vsql_ssl_ca eq "" && $vsql_ssl_cert eq "" && $vsql_ssl_key eq "" } {
-                #All of the file entries are blank, use capath only
+        tk_messageBox -message "[ file join $capath $vsql_ssl_ca ] is not readable, disabling SSL"
+        dict set configvillagesql connection vsql_ssl "false"
+        return
+    }
+    #For two-way SSL also check Cert and Key are readable.
+    if { $vsql_ssl_two_way eq "true" } {
+        foreach sslfile [ list $vsql_ssl_cert $vsql_ssl_key ] {
+            if { [ file readable [ file join $capath $sslfile ]] } {
             } else {
-                #CApath is valid, file entries are not blank, always check CA
-                if { [ file readable [ file join $capath $vsql_ssl_ca ]] } {
-                } else {
-                    tk_messageBox -message "[ file join $capath $vsql_ssl_ca ] is not readable, disabling SSL"
-                    dict set configvillagesql connection vsql_ssl "false"
-                    return
-                }
-                #capath and ca are readable
-                if { $vsql_ssl_two_way eq "true" } {
-                    #Also check Cert and Key readable
-                    foreach sslfile [ list $vsql_ssl_cert $vsql_ssl_key ] {
-                        if { [ file readable [ file join $capath $sslfile ]] } {
-                        } else {
-                            tk_messageBox -message "[ file join $capath $sslfile ] is not readable, disabling SSL"
-                            dict set configvillagesql connection vsql_ssl "false"
-                            return
-                        }
-                    }
-                }
+                tk_messageBox -message "[ file join $capath $sslfile ] is not readable, disabling SSL"
+                dict set configvillagesql connection vsql_ssl "false"
+                return
             }
-        } else {
-            tk_messageBox -message "SSL CApath is not a valid directory, disabling SSL"
-            #Set SSL to false
-            dict set configvillagesql connection vsql_ssl "false"
-            return
         }
     }
-    #SSL is true and all files needed are readable, build options
+    #SSL is true and configured files are readable, build options.
     append vsql_ssl_options " -ssl true "
-    if { $vsql_ssl_ca eq "" && $vsql_ssl_cert eq "" && $vsql_ssl_key eq "" } {
-        #No files given as an argument use -capath only
-        append vsql_ssl_options " -sslcapath $capath "
-    } else {
-        #for one-way use -sslca only
-        append vsql_ssl_options " -sslca [ file join $capath $vsql_ssl_ca ] "
-        if { $vsql_ssl_two_way eq "true" } {
-            #for two-way add -sslcert & -sslkey
-            append vsql_ssl_options " -sslcert [ file join $capath $vsql_ssl_cert ] "
-            append vsql_ssl_options " -sslkey [ file join $capath $vsql_ssl_key ] "
-        }
+    append vsql_ssl_options " -sslca [ file join $capath $vsql_ssl_ca ] "
+    if { $vsql_ssl_two_way eq "true" } {
+        append vsql_ssl_options " -sslcert [ file join $capath $vsql_ssl_cert ] "
+        append vsql_ssl_options " -sslkey [ file join $capath $vsql_ssl_key ] "
     }
     #if ssl_cipher has changed add the option
     if { $vsql_ssl_cipher != "server" } { append vsql_ssl_options " -sslcipher $vsql_ssl_cipher " }
