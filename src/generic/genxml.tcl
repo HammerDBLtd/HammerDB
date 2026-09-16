@@ -155,7 +155,7 @@ proc Dict2SQLite {dbname dbdict} {
                     return
                 }
                 dict for {subkey subattributes} $attributes {
-                    set sqlcmd "INSERT INTO $tablename\(key, val\) VALUES(\'$subkey\', \'$subattributes\')"
+                    set sqlcmd "INSERT INTO $tablename\(key, val) VALUES(\'$subkey\', \'$subattributes\')"
                     hdb eval $sqlcmd
                     #puts "sqlcmd: $sqlcmd\n"
                 }
