@@ -85,8 +85,6 @@ foreach { key } [ dict keys $dbdict ] {
     set prefix [ dict get $dbdict $key prefix ]
     lappend dbsrclist "$key/$prefix\opt.tcl" "$key/$prefix\oltp.tcl" "$key/$prefix\olap.tcl" "$key/$prefix\otc.tcl"
 }
-#Override the database-specific SSL option builders after they are loaded.
-lappend dbsrclist "generic/genssl.tcl"
 
 #get_xml_data
 set_global_config $genericdict
