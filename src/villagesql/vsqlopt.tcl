@@ -12,9 +12,9 @@ proc check_vsql_ssl { configdict } {
     } else {
         set capath $vsql_ssl_windows_capath
     }
-        #No explicit CA/certificate files: allow one-way TLS without verification when CApath is also blank
+    #No explicit CA/certificate files: allow one-way TLS without verification when CApath is also blank
     set no_ssl_files [ expr {$vsql_ssl_ca eq "" && $vsql_ssl_cert eq "" && $vsql_ssl_key eq ""} ]
-#If SSL not enabled return
+    #If SSL not enabled return
     if { $vsql_ssl != "true" } {
         #nothing to check, vsql_ssl_options is not set
         set vsql_ssl_options " -ssl false "
