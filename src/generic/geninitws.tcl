@@ -92,3 +92,4 @@ set_global_config $genericdict
 #Make generics global
 tsv::set application genericdict $genericdict
 guid_init
+
