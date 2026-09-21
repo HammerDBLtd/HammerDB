@@ -12,12 +12,20 @@ set capath $maria_ssl_linux_capath
 } else {
 set capath $maria_ssl_windows_capath
 }
+#No explicit CA/certificate files: allow one-way TLS without verification when CApath is also blank
+set no_ssl_files [ expr {$maria_ssl_ca eq "" && $maria_ssl_cert eq "" && $maria_ssl_key eq ""} ]
 #If SSL not enabled return
 if { $maria_ssl != "true" } { 
 #nothing to check, maria_ssl_options is not set
 set maria_ssl_options " -ssl false "
 return	
 } else {
+#One-way TLS can be requested without explicit CA, certificate or key files.
+if { $maria_ssl_two_way ne "true" && $no_ssl_files && $capath eq "" } {
+    append maria_ssl_options " -ssl true "
+    if { $maria_ssl_cipher != "server" } { append maria_ssl_options " -sslcipher $maria_ssl_cipher " }
+    return
+}
 #SSL is enabled, check that capath is valid
 if { [ file isdirectory $capath ] } {
 if { $maria_ssl_ca eq "" && $maria_ssl_cert eq "" && $maria_ssl_key eq "" } {
