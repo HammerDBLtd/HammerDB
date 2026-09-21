@@ -12,9 +12,9 @@ proc check_mysql_ssl { configdict } {
     } else {
         set capath $mysql_ssl_windows_capath
     }
-        #No explicit CA/certificate files: allow one-way TLS without verification when CApath is also blank
+    #No explicit CA/certificate files: allow one-way TLS without verification when CApath is also blank
     set no_ssl_files [ expr {$mysql_ssl_ca eq "" && $mysql_ssl_cert eq "" && $mysql_ssl_key eq ""} ]
-#If SSL not enabled return
+    #If SSL not enabled return
     if { $mysql_ssl != "true" } { 
         #nothing to check, mysql_ssl_options is not set
         set mysql_ssl_options " -ssl false "
