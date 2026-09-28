@@ -760,7 +760,20 @@ ENGINE = $maria_storage_engine"
 PRIMARY KEY (`w_id`)
 )
 ENGINE = $maria_storage_engine"
-    for { set i 1 } { $i <= 9 } { incr i } {
+    if { [ string toupper $maria_storage_engine ] eq "INNODB" } {
+        mariaexec $maria_handler "SET GLOBAL innodb_blink_enabled=OFF"
+    }
+    for { set i 1 } { $i <= 6 } { incr i } {
+        mariaexec $maria_handler $sql($i)
+    }
+    if { [ string toupper $maria_storage_engine ] eq "INNODB" } {
+        mariaexec $maria_handler "SET GLOBAL innodb_blink_enabled=ON"
+    }
+    mariaexec $maria_handler $sql(7)
+    if { [ string toupper $maria_storage_engine ] eq "INNODB" } {
+        mariaexec $maria_handler "SET GLOBAL innodb_blink_enabled=OFF"
+    }
+    for { set i 8 } { $i <= 9 } { incr i } {
         mariaexec $maria_handler $sql($i)
     }
     return
