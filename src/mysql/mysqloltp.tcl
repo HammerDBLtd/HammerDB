@@ -2756,10 +2756,7 @@ switch $myposition {
             set acno [ expr [ string trimleft [ lindex [ split $clientname ":" ] 1 ] ac ] * $async_delay ]
             if { $async_verbose } { puts "Delaying login of $clientname for $acno ms" }
             async_time $acno
-            if {  [ tsv::get application abort ]  } {
-                printclientcountasync $clientname 0 0 0 0 0
-                return "$clientname:abort before login"
-            }
+            if {  [ tsv::get application abort ]  } { return "$clientname:abort before login" }
             if { $async_verbose } { puts "Logging in $clientname" }
             set mysql_handler [ ConnectToMySQLAsynch $host $port $socket $ssl_options $user $password $db $clientname $async_verbose ]
             #RUN TPC-C
