@@ -10,7 +10,7 @@ proc build_vsqltpch {} {
     #If the options menu has been run under the GUI vsql_ssl_options is set
     #If build is run under the GUI, CLI or WS vsql_ssl_options is not set
     #Set it now if it doesn't exist
-    if ![ info exists vsql_ssl_options ] { check_vsql_ssl $configvillagesql }
+    check_vsql_ssl $configvillagesql
     if { ![string match windows $::tcl_platform(platform)] && ($vsql_host eq "127.0.0.1" || [ string tolower $vsql_host ] eq "localhost") && [ string tolower $vsql_socket ] != "null" } { set vsql_connector "$vsql_host:$vsql_socket" } else { set vsql_connector "$vsql_host:$vsql_port" }
     if {[ tk_messageBox -title "Create Schema" -icon question -message "Ready to create a Scale Factor $vsql_scale_fact TPROC-H schema\n in host [string toupper $vsql_connector] under user [ string toupper $vsql_tpch_user ] in database [ string toupper $vsql_tpch_dbase ] with storage engine [ string toupper $vsql_tpch_storage_engine ]?" -type yesno ] == yes} {
         if { $vsql_num_tpch_threads eq 1 } {
@@ -611,6 +611,7 @@ proc do_tpch { host port socket ssl_options scale_fact user password db vsql_tpc
         set num_vu 1
     }
     if { $threaded eq "SINGLE-THREADED" ||  $threaded eq "MULTI-THREADED" && $myposition eq 1 } {
+        try {
         puts "CREATING [ string toupper $user ] SCHEMA"
         set vsql_handler [ ConnectToVillageSQL $host $port $socket $ssl_options $user $password ]
         set db_created [ CreateDatabase $vsql_handler $db ]
@@ -634,25 +635,7 @@ proc do_tpch { host port socket ssl_options scale_fact user password db vsql_tpc
             puts "Loading NATION..."
             mk_nation $vsql_handler
             puts "Loading NATION COMPLETE"
-            puts "Monitoring Workers..."
-            after 10000
-            set prevactive 0
-            while 1 {
-                set idlcnt 0; set lvcnt 0; set dncnt 0;
-                for {set th 2} {$th <= $totalvirtualusers } {incr th} {
-                    switch [tsv::lindex common thrdlst $th] {
-                        idle { incr idlcnt }
-                        active { incr lvcnt }
-                        done { incr dncnt }
-                    }
-                }
-                if { $lvcnt != $prevactive } {
-                    puts "Workers: $lvcnt Active $dncnt Done"
-                }
-                set prevactive $lvcnt
-                if { $dncnt eq [expr  $totalvirtualusers - 1] } { break }
-                after 10000
-            }
+            if {[loader_monitor $totalvirtualusers 10000] eq "ABORT"} { return }
         } else {
             puts "Loading REGION..."
             mk_region $vsql_handler
@@ -661,23 +644,19 @@ proc do_tpch { host port socket ssl_options scale_fact user password db vsql_tpc
             mk_nation $vsql_handler
             puts "Loading NATION COMPLETE"
         }
-    }
+    
+        } on error {message options} {
+            if { $threaded eq "MULTI-THREADED" } {
+                tsv::set application load "ERROR"
+            }
+            return -options $options $message
+        }
+}
     if { $threaded eq "SINGLE-THREADED" ||  $threaded eq "MULTI-THREADED" && $myposition != 1 } {
+        try {
         if { $threaded eq "MULTI-THREADED" } {
             puts "Waiting for Monitor Thread..."
-            set mtcnt 0
-            while 1 {
-                if { [ tsv::get application abort ] } { return }
-                if { [ tsv::exists application load ] } {
-                    incr mtcnt
-                    if { [ tsv::get application load ] eq "READY" } { break }
-                    if { $mtcnt eq 48 } {
-                        puts "Monitor failed to notify ready state"
-                        return
-                    }
-                }
-                after 5000
-            }
+            if {[loader_wait_ready 48 5000] eq "ABORT"} { return }
             set vsql_handler [ ConnectToVillageSQL $host $port $socket $ssl_options $user $password ]
             mysqluse $vsql_handler $db
             mysqlexec $vsql_handler "SET FOREIGN_KEY_CHECKS = 0"
@@ -687,7 +666,7 @@ proc do_tpch { host port socket ssl_options scale_fact user password db vsql_tpc
             set cust_chunk [ split [ start_end $sup_rows $myposition $cust_mult $num_vu ] ":" ]
             set part_chunk [ split [ start_end $sup_rows $myposition $part_mult $num_vu ] ":" ]
             set ord_chunk [ split [ start_end $sup_rows $myposition $ord_mult $num_vu ] ":" ]
-            tsv::lreplace common thrdlst $myposition $myposition active
+            loader_set_state $myposition active
         } else {
             set sf_chunk "1 $sup_rows"
             set cust_chunk "1 [ expr {$sup_rows * $cust_mult} ]"
@@ -706,9 +685,16 @@ proc do_tpch { host port socket ssl_options scale_fact user password db vsql_tpc
         puts "Loading TPCH TABLES COMPLETE"
         puts "End:[ clock format [ clock seconds ] ]"
         if { $threaded eq "MULTI-THREADED" } {
-            tsv::lreplace common thrdlst $myposition $myposition done
+            loader_set_state $myposition done
         }
-    }
+    
+        } on error {message options} {
+            if { $threaded eq "MULTI-THREADED" } {
+                loader_set_state $myposition error
+            }
+            return -options $options $message
+        }
+}
     # Update schema and set secondary_engine. Start data migration to Heatwave.
     if { [string equal -nocase $vsql_tpch_storage_engine "Heatwave" ] } {
         puts "Migrating data to Heatwave..."
@@ -738,7 +724,7 @@ proc loadvsqltpch { } {
     #If the options menu has been run under the GUI vsql_ssl_options is set
     #If build is run under the GUI, CLI or WS vsql_ssl_options is not set
     #Set it now if it doesn't exist
-    if ![ info exists vsql_ssl_options ] { check_vsql_ssl $configvillagesql }
+    check_vsql_ssl $configvillagesql
     ed_edit_clear
     .ed_mainFrame.notebook select .ed_mainFrame.mainwin
     set _ED(packagekeyname) "VillageSQL TPROC-H"
@@ -1402,7 +1388,7 @@ proc loadvsqlcloud {} {
     #If the options menu has been run under the GUI vsql_ssl_options is set
     #If build is run under the GUI, CLI or WS vsql_ssl_options is not set
     #Set it now if it doesn't exist
-    if ![ info exists vsql_ssl_options ] { check_vsql_ssl $configvillagesql }
+    check_vsql_ssl $configvillagesql
     ed_edit_clear
     .ed_mainFrame.notebook select .ed_mainFrame.mainwin
     set _ED(packagekeyname) "VillageSQL Cloud"
@@ -1558,7 +1544,7 @@ proc delete_vsqltpch {} {
     #If the options menu has been run under the GUI vsql_ssl_options is set
     #If build is run under the GUI, CLI or WS vsql_ssl_options is not set
     #Set it now if it doesn't exist
-    if ![ info exists vsql_ssl_options ] { check_vsql_ssl $configvillagesql }
+    check_vsql_ssl $configvillagesql
     if { ![string match windows $::tcl_platform(platform)] && ($vsql_host eq "127.0.0.1" || [ string tolower $vsql_host ] eq "localhost") && [ string tolower $vsql_socket ] != "null" } { set vsql_connector "$vsql_host:$vsql_socket" } else { set vsql_connector "$vsql_host:$vsql_port" }
     if {[ tk_messageBox -title "Delete Schema" -icon question -message "Do you want to delete the [ string toupper $vsql_tpch_dbase ] TPROC-H schema\n in host [string toupper $vsql_connector] under user [ string toupper $vsql_tpch_user ]?" -type yesno ] == yes} {
         set maxvuser 1
@@ -1659,7 +1645,7 @@ proc check_vsqltpch {} {
     #If the options menu has been run under the GUI vsql_ssl_options is set
     #If build is run under the GUI, CLI or WS vsql_ssl_options is not set
     #Set it now if it doesn't exist
-    if ![ info exists vsql_ssl_options ] { check_vsql_ssl $configvillagesql }
+    check_vsql_ssl $configvillagesql
     if { ![string match windows $::tcl_platform(platform)] && ($vsql_host eq "127.0.0.1" || [ string tolower $vsql_host ] eq "localhost") && [ string tolower $vsql_socket ] != "null" } { set vsql_connector "$vsql_host:$vsql_socket" } else {
         set vsql_connector "$vsql_host:$vsql_port"
     }
@@ -1750,9 +1736,9 @@ proc check_tpch { host port socket ssl_options user password dbase scale_factor 
 	if { $match == -1 } {
 	error "TPROC-H Schema check failed $dbase schema is missing table $table"
 	} else {
-	if { $table eq "supplier" } {
+	if { $table eq "SUPPLIER" } {
 	#Check 3 scale factor in schema is the same as dict setting
-        set count [  mysql::sel $vsql_handler "select count(*) from supplier" -flatlist ]
+        set count [  mysql::sel $vsql_handler "select count(*) from $table" -flatlist ]
 	if { $count } {
         set actual_scale_factor [ expr {$count / 10000} ]
         if { $actual_scale_factor != $scale_factor } {

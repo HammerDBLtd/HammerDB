@@ -12,7 +12,7 @@ proc build_mysqltpcc {} {
     #If the options menu has been run under the GUI mysql_ssl_options is set
     #If build is run under the GUI, CLI or WS mysql_ssl_options is not set
     #Set it now if it doesn't exist
-    if ![ info exists mysql_ssl_options ] { check_mysql_ssl $configmysql } 
+    check_mysql_ssl $configmysql 
     if { ![string match windows $::tcl_platform(platform)] && ($mysql_host eq "127.0.0.1" || [ string tolower $mysql_host ] eq "localhost") && [ string tolower $mysql_socket ] != "null" } { set mysql_connector "$mysql_host:$mysql_socket" } else { set mysql_connector "$mysql_host:$mysql_port" }
     if {[ tk_messageBox -title "Create Schema" -icon question -message "Ready to create a $mysql_count_ware Warehouse MySQL TPROC-C schema\nin host [string toupper $mysql_connector] under user [ string toupper $mysql_user ] in database [ string toupper $mysql_dbase ] with storage engine [ string toupper $mysql_storage_engine ]?" -type yesno ] == yes} { 
         if { $mysql_num_vu eq 1 || $mysql_count_ware eq 1 } {
@@ -1015,6 +1015,7 @@ proc do_tpcc { host port socket ssl_options count_ware user password db mysql_st
         set num_vu 1
     }
     if { $threaded eq "SINGLE-THREADED" ||  $threaded eq "MULTI-THREADED" && $myposition eq 1 } {
+        try {
         puts "CREATING [ string toupper $db ] SCHEMA"
         set mysql_handler [ ConnectToMySQL $host $port $socket $ssl_options $user $password ]
         set db_created [ CreateDatabase $mysql_handler $db ]
@@ -1037,49 +1038,28 @@ proc do_tpcc { host port socket ssl_options count_ware user password db mysql_st
         if { $threaded eq "MULTI-THREADED" } {
             tsv::set application load "READY"
             LoadItems $mysql_handler $MAXITEMS
-            puts "Monitoring Workers..."
-            set prevactive 0
-            while 1 {
-                set idlcnt 0; set lvcnt 0; set dncnt 0;
-                for {set th 2} {$th <= $totalvirtualusers } {incr th} {
-                    switch [tsv::lindex common thrdlst $th] {
-                        idle { incr idlcnt }
-                        active { incr lvcnt }
-                        done { incr dncnt }
-                    }
-                }
-                if { $lvcnt != $prevactive } {
-                    puts "Workers: $lvcnt Active $dncnt Done"
-                }
-                set prevactive $lvcnt
-                if { $dncnt eq [expr  $totalvirtualusers - 1] } { break }
-                after 10000
-            }
+            if {[loader_monitor $totalvirtualusers] eq "ABORT"} { return }
         } else {
             LoadItems $mysql_handler $MAXITEMS
         }
-    }
+    
+        } on error {message options} {
+            if { $threaded eq "MULTI-THREADED" } {
+                tsv::set application load "ERROR"
+            }
+            return -options $options $message
+        }
+}
     if { $threaded eq "SINGLE-THREADED" ||  $threaded eq "MULTI-THREADED" && $myposition != 1 } {
+        try {
         if { $threaded eq "MULTI-THREADED" } {
             puts "Waiting for Monitor Thread..."
-            set mtcnt 0
-            while 1 {
-                if { [ tsv::get application abort ] } { return }
-                if { [ tsv::exists application load ] } {
-                    incr mtcnt
-                    if { [ tsv::get application load ] eq "READY" } { break }
-                    if { $mtcnt eq 48 } {
-                        puts "Monitor failed to notify ready state"
-                        return
-                    }
-                }
-                after 5000
-            }
+            if {[loader_wait_ready 48 5000] eq "ABORT"} { return }
             set mysql_handler [ ConnectToMySQL $host $port $socket $ssl_options $user $password ]
             mysqluse $mysql_handler $db
             set remb [ lassign [ findchunk $num_vu $count_ware $myposition ] chunk mystart myend ]
             puts "Loading $chunk Warehouses start:$mystart end:$myend"
-            tsv::lreplace common thrdlst $myposition $myposition active
+            loader_set_state $myposition active
         } else {
             set mystart 1
             set myend $count_ware
@@ -1091,9 +1071,16 @@ proc do_tpcc { host port socket ssl_options count_ware user password db mysql_st
         puts "End:[ clock format [ clock seconds ] ]"
         mysql::commit $mysql_handler
         if { $threaded eq "MULTI-THREADED" } {
-            tsv::lreplace common thrdlst $myposition $myposition done
+            loader_set_state $myposition done
         }
-    }
+    
+        } on error {message options} {
+            if { $threaded eq "MULTI-THREADED" } {
+                loader_set_state $myposition error
+            }
+            return -options $options $message
+        }
+}
     if { $threaded eq "SINGLE-THREADED" || $threaded eq "MULTI-THREADED" && $myposition eq 1 } {
         CreateStoredProcs $mysql_handler
         GatherStatistics $mysql_handler
@@ -1331,7 +1318,7 @@ mysqlclose $mmysql_handler
             set syncdrvi(7b) [.ed_mainFrame.mainwin.textFrame.left.text search -backwards {set mmysql_handler [ ConnectToMySQL $host $port $socket $ssl_options $user $password $db ]} end ]
             .ed_mainFrame.mainwin.textFrame.left.text fastdelete $syncdrvi(7a) $syncdrvi(7b)+1l
             #Replace individual lines for Asynch
-            foreach line {{set mysql_handler [ ConnectToMySQLAsynch $host $port $socket $ssl_options $user $password $db $clientname $async_verbose ]} {dict set connlist $id [ set mysql_handler$id [ ConnectToMySQL $1 $2 $3 $4 $5 $6 $7 ] ]} {#puts "sproc_cur:$st connections:[ set $cslist ] cursors:[set $cursor_list] number of cursors:[set $len] execs:[set $cnt]"}} asynchline {{set mmysql_handler [ ConnectToMySQLAsynch $host $port $socket $user $password $db $clientname $async_verbose ]} {dict set connlist $id [ set mysql_handler$id [ ConnectToMySQLAsynch $1 $2 $3 $4 $5 $6 $clientname $async_verbose ] ]} {#puts "$clientname:sproc_cur:$st connections:[ set $cslist ] cursors:[set $cursor_list] number of cursors:[set $len] execs:[set $cnt]"}} {
+            foreach line {{set mysql_handler [ ConnectToMySQLAsynch $host $port $socket $ssl_options $user $password $db $clientname $async_verbose ]} {dict set connlist $id [ set mysql_handler$id [ ConnectToMySQL $1 $2 $3 $4 $5 $6 $7 ] ]} {#puts "sproc_cur:$st connections:[ set $cslist ] cursors:[set $cursor_list] number of cursors:[set $len] execs:[set $cnt]"}} asynchline {{set mmysql_handler [ ConnectToMySQLAsynch $host $port $socket $ssl_options $user $password $db $clientname $async_verbose ]} {dict set connlist $id [ set mysql_handler$id [ ConnectToMySQLAsynch $1 $2 $3 $4 $5 $6 $7 $clientname $async_verbose ] ]} {#puts "$clientname:sproc_cur:$st connections:[ set $cslist ] cursors:[set $cursor_list] number of cursors:[set $len] execs:[set $cnt]"}} {
                 set index [.ed_mainFrame.mainwin.textFrame.left.text search -backwards $line end ]
                 .ed_mainFrame.mainwin.textFrame.left.text fastdelete $index "$index lineend + 1 char"
                 .ed_mainFrame.mainwin.textFrame.left.text fastinsert $index "$asynchline \n"
@@ -1532,10 +1519,7 @@ proc insert_mysql_no_stored_procs { testtype timedtype } {
     if { $byname } {
       set namecnt [ mysql::sel $mysql_handler "SELECT count(c_id) FROM customer WHERE c_last = '$name' AND c_d_id = $p_c_d_id AND c_w_id = $p_c_w_id" -flatlist ]
       set cust_list [ mysql::sel $mysql_handler "SELECT c_first, c_middle, c_id, c_street_1, c_street_2, c_city, c_state, c_zip, c_phone, c_credit, c_credit_lim, c_discount, c_balance, c_since FROM customer WHERE c_w_id = $p_c_w_id AND c_d_id = $p_c_d_id AND c_last = '$name' ORDER BY c_first" -list ]
-      if { [ expr {$namecnt % 2} ] eq 1 } {
-        set $namecnt [ expr {$namecnt + 1} ]
-      }
-      set cust_id_to_query [ lindex $cust_list [ expr {$namecnt / 2} ] ]
+      set cust_id_to_query [ lindex $cust_list [ expr {($namecnt - 1) / 2} ] ]
       lassign $cust_id_to_query p_c_first p_c_middle p_c_id p_c_street_1 p_c_street_2 p_c_city p_c_state p_c_zip p_c_phone p_c_credit p_c_credit_lim p_c_discount p_c_balance p_c_since
       set p_c_last $name
     } else {
@@ -1580,14 +1564,18 @@ proc insert_mysql_no_stored_procs { testtype timedtype } {
       }
       set cust_list [ mysql::sel $mysql_handler "SELECT c_balance, c_first, c_middle, c_id FROM customer WHERE c_last = '$name' AND c_d_id = $d_id AND c_w_id = $w_id ORDER BY c_first" -list ]
       set cust_id_to_query [ lindex $cust_list [ expr ($namecnt/2)-1 ] ]
+      lassign $cust_id_to_query os_c_balance os_c_first os_c_middle c_id
+      set os_c_last $name
     } else {
-      set cust_id_to_query [ mysql::sel $mysql_handler "SELECT c_balance, c_first, c_middle, c_last FROM customer WHERE c_id = $c_id AND c_d_id = $d_id AND c_w_id = $w_id" -list ]
+      set cust_id_to_query [ mysql::sel $mysql_handler "SELECT c_balance, c_first, c_middle, c_last FROM customer WHERE c_id = $c_id AND c_d_id = $d_id AND c_w_id = $w_id" -flatlist ]
+      lassign $cust_id_to_query os_c_balance os_c_first os_c_middle os_c_last
     }
-    lassign $cust_id_to_query os_c_balance os_c_first os_c_middle os_c_last
     set cust_orders [ mysql::sel $mysql_handler "SELECT o_id, o_carrier_id, o_entry_d FROM (SELECT o_id, o_carrier_id, o_entry_d FROM orders where o_d_id = $d_id AND o_w_id = $w_id and o_c_id = $c_id ORDER BY o_id DESC) AS sb LIMIT 1" -flatlist ]
     if { [ llength $cust_orders ] eq 0 } {
       set no_order_status "No orders for customer"
       set o_id 0
+      set o_entry_d ""
+      set o_carrier_id ""
     } else {
       lassign $cust_orders o_id o_carrier_id o_entry_d
     }
@@ -1653,15 +1641,10 @@ proc insert_mysql_no_stored_procs { testtype timedtype } {
 
         set index_sp_1 [.ed_mainFrame.mainwin.textFrame.left.text search -forwards "\#NEW ORDER" 1.0 ]
         set index_sp_2 [.ed_mainFrame.mainwin.textFrame.left.text search -backwards "proc prep_statement" end ]
-        #End of run loop is previous line
-	#CLI indexes are characters in the string and integers GUI indexes are based on lines and position. Move back 1 line
-	if { [ string is entier $index_sp_2 ] } {
-       set index_sp_2 [ expr $index_sp_2 - 10 ]
-       	} else {
-       set index_sp_2 [ expr $index_sp_2 - 1 ]
-	}
-        #Delete stored procedures
-        .ed_mainFrame.mainwin.textFrame.left.text fastdelete $index_sp_1 $index_sp_2+1l
+        # Remove up to the next procedure, including the old closing braces.
+        # CLI offsets are inclusive; Tk text indices use an exclusive end.
+        if {[string is entier -strict $index_sp_2]} {incr index_sp_2 -1}
+        .ed_mainFrame.mainwin.textFrame.left.text fastdelete $index_sp_1 $index_sp_2
         #Insert no stored procedures version
         .ed_mainFrame.mainwin.textFrame.left.text fastinsert $index_sp_1 "$neword_no_sp \n\n $pay_no_sp \n\n $ostat_no_sp \n\n $deliv_no_sp \n\n $stock_no_sp \n\n"
 }
@@ -1678,7 +1661,7 @@ proc loadmysqltpcc { } {
     #If the options menu has been run under the GUI mysql_ssl_options is set
     #If build is run under the GUI, CLI or WS mysql_ssl_options is not set
     #Set it now if it doesn't exist
-    if ![ info exists mysql_ssl_options ] { check_mysql_ssl $configmysql }
+    check_mysql_ssl $configmysql
     ed_edit_clear
     .ed_mainFrame.notebook select .ed_mainFrame.mainwin
     set _ED(packagekeyname) "MySQL TPROC-C"
@@ -1996,7 +1979,7 @@ proc loadtimedmysqltpcc { } {
     #If the options menu has been run under the GUI mysql_ssl_options is set
     #If build is run under the GUI, CLI or WS mysql_ssl_options is not set
     #Set it now if it doesn't exist
-    if ![ info exists mysql_ssl_options ] { check_mysql_ssl $configmysql }
+    check_mysql_ssl $configmysql
     ed_edit_clear
     .ed_mainFrame.notebook select .ed_mainFrame.mainwin
     set _ED(packagekeyname) "MySQL TPROC-C Timed"
@@ -2078,6 +2061,12 @@ proc ConnectToMySQL { host port socket ssl_options user password db } {
 }
 
 proc CheckDBVersion { mysql_handler } {
+           if {![catch {lassign [ lindex [ mysql::sel $mysql_handler "select version(), @@version_comment" -list ] 0 ] version comment}]} {
+                if { ![ string match -nocase "*Percona Server*" $comment ] } {
+                    set version [ lindex [ split $version - ] 0 ]
+                }
+                return "DBVersion:$version VersionComment:$comment"
+           }
            if {[catch {set dbversion [ lindex [ split [ list [ mysql::sel $mysql_handler "select version()" -list ] ] - ] 0 ]}]} {
                 set dbversion "DBVersion:NULL"
            } else {
@@ -2508,6 +2497,12 @@ proc ConnectToMySQLAsynch { host port socket ssl_options user password db client
 }
 
 proc CheckDBVersion { mysql_handler } {
+           if {![catch {lassign [ lindex [ mysql::sel $mysql_handler "select version(), @@version_comment" -list ] 0 ] version comment}]} {
+                if { ![ string match -nocase "*Percona Server*" $comment ] } {
+                    set version [ lindex [ split $version - ] 0 ]
+                }
+                return "DBVersion:$version VersionComment:$comment"
+           }
            if {[catch {set dbversion [ lindex [ split [ list [ mysql::sel $mysql_handler "select version()" -list ] ] - ] 0 ]}]} {
                 set dbversion "DBVersion:NULL"
            } else {
@@ -2862,7 +2857,7 @@ proc delete_mysqltpcc {} {
     #If the options menu has been run under the GUI mysql_ssl_options is set
     #If build is run under the GUI, CLI or WS mysql_ssl_options is not set
     #Set it now if it doesn't exist
-    if ![ info exists mysql_ssl_options ] { check_mysql_ssl $configmysql } 
+    check_mysql_ssl $configmysql 
     if { ![string match windows $::tcl_platform(platform)] && ($mysql_host eq "127.0.0.1" || [ string tolower $mysql_host ] eq "localhost") && [ string tolower $mysql_socket ] != "null" } { set mysql_connector "$mysql_host:$mysql_socket" } else { set mysql_connector "$mysql_host:$mysql_port" }
     if {[ tk_messageBox -title "Delete Schema" -icon question -message "Do you want to delete the [ string toupper $mysql_dbase ] TPROC-C schema\n in host [string toupper $mysql_connector] under user [ string toupper $mysql_user ]?" -type yesno ] == yes} {
         set maxvuser 1
@@ -2963,7 +2958,7 @@ proc check_mysqltpcc {} {
     #If the options menu has been run under the GUI mysql_ssl_options is set
     #If build is run under the GUI, CLI or WS mysql_ssl_options is not set
     #Set it now if it doesn't exist
-    if ![ info exists mysql_ssl_options ] { check_mysql_ssl $configmysql } 
+    check_mysql_ssl $configmysql 
     if { ![string match windows $::tcl_platform(platform)] && ($mysql_host eq "127.0.0.1" || [ string tolower $mysql_host ] eq "localhost") && [ string tolower $mysql_socket ] != "null" } { set mysql_connector "$mysql_host:$mysql_socket" } else { 
         set mysql_connector "$mysql_host:$mysql_port" 
     }

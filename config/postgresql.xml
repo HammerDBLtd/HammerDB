@@ -20,11 +20,13 @@
             <pg_dritasnap>false</pg_dritasnap>
             <pg_oracompat>false</pg_oracompat>
             <pg_cituscompat>false</pg_cituscompat>
+            <pg_citus_azure_elastic_cluster>false</pg_citus_azure_elastic_cluster>
+            <pg_citus_loadbalancer>0</pg_citus_loadbalancer>
             <pg_storedprocs>false</pg_storedprocs>
             <pg_partition>false</pg_partition>
         </schema>
         <driver>
-            <pg_total_iterations>10000000</pg_total_iterations>
+            <pg_total_iterations>2147483647</pg_total_iterations>
             <pg_raiseerror>false</pg_raiseerror>
             <pg_keyandthink>false</pg_keyandthink>
             <pg_driver>timed</pg_driver>
