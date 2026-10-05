@@ -1,3 +1,4 @@
+# Supporting job views v1
 package provide jobs 1.0
 namespace eval jobs {
   namespace export init_job_tables_gui init_job_tables init_job_tables_ws jobmain jobs job hdbjobs jobs_ws job_disable job_disable_check job_format cireset wapp-page-jobs wapp-page-logo.png wapp-page-logo-full.png wapp-page-tick.png wapp-page-cross.png wapp-page-star.png wapp-page-nostatus.png getjob savechart home-common-header common-header common-footer getdatabasefile
@@ -945,7 +946,7 @@ proc home-common-header {} {
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="content-type" content="text/html; charset=UTF-8">
-<link href="%url($url)" rel="stylesheet">
+<link href="%url($url)" rel="stylesheet"><link href="%url([wapp-param BASE_URL]/hdb-theme.css)" rel="stylesheet"><script src="%url([wapp-param BASE_URL]/hdb-theme.js)"></script>
 <title>HammerDB Jobs</title>
 }
 __auto_refresh_js 120000
@@ -953,12 +954,12 @@ __auto_refresh_js 120000
 </head>
 <body>
 
-<p style="margin:12px 16px 6px 16px;">
-  <img src="%unsafe($logoimg)" width="55" height="60">
+<p class="hdb-brand-logo">
+  <img src="%unsafe($logoimg)" width="55" alt="HammerDB">
 </p>
 
-<div style="margin:0 16px 18px 16px; padding-bottom:8px; border-bottom:1px solid #ddd;">
-  <div style="display:flex; justify-content:flex-start; align-items:center; gap:12px;">
+<div class="hdb-service-header" style="margin:0 16px 18px 16px; padding-bottom:8px; border-bottom:1px solid #ddd;">
+  <div class="hdb-service-nav" style="display:flex; justify-content:flex-start; align-items:center; gap:12px;">
     <h3 class="title" style="margin:0;">HammerDB Jobs</h3>
     <a href="%html($pipelines_url)"
        style="margin-top:2px;
@@ -991,7 +992,7 @@ __auto_refresh_js 120000
       <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <meta http-equiv="content-type" content="text/html; charset=UTF-8">
-      <link href="%url($url)" rel="stylesheet">
+      <link href="%url($url)" rel="stylesheet"><link href="%url([wapp-param BASE_URL]/hdb-theme.css)" rel="stylesheet"><script src="%url([wapp-param BASE_URL]/hdb-theme.js)"></script>
       <title>HammerDB Jobs</title>
       </head>
       <body>
@@ -1008,7 +1009,7 @@ __auto_refresh_js 120000
       <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <meta http-equiv="content-type" content="text/html; charset=UTF-8">
-      <link href="%url($url)" rel="stylesheet">
+      <link href="%url($url)" rel="stylesheet"><link href="%url([wapp-param BASE_URL]/hdb-theme.css)" rel="stylesheet"><script src="%url([wapp-param BASE_URL]/hdb-theme.js)"></script>
       <title>hdb_%html($jobid)</title>
       </head>
       <body>
@@ -1708,7 +1709,7 @@ proc wapp-page-jobs {} {
             wapp-subst "<p><i>Showing first %html($max) bytes of %html($total).</i></p>\n"
             set s [string range $s 0 [expr {$max-1}]]
         }
-	wapp-unsafe "<pre style=\"white-space:pre-wrap; overflow-wrap:anywhere;\">$s</pre>\n"
+        wapp-subst {<pre style="white-space:pre-wrap; overflow-wrap:anywhere;">%html($s)</pre>}
     }
 
     proc __job_exists {jobid} {
@@ -1911,7 +1912,7 @@ proc wapp-page-jobs {} {
             }
         }
 
-        __jobs_render_grouped_table $tproccgroups [list Jobid Database Date Workload NOPM Status] "No TPROC-C runs found in database file [getdatabasefile]"
+        __jobs_render_grouped_table $tproccgroups [list {Job ID} Database Date Workload NOPM Status] "No TPROC-C runs found in database file [getdatabasefile]"
         wapp-subst {</div>
 }
 
@@ -1988,7 +1989,7 @@ proc wapp-page-jobs {} {
 }
         wapp-subst {<h3 class="title" id="jobs-tproch">TPROC-H</h3>}
         wapp-trim {<div class='hammerdb' data-title='TPROC-H'>}
-        __jobs_render_grouped_table $tprochgroups [list Jobid Database Date Workload Geomean Status] "No TPROC-H jobs found in database file [getdatabasefile]"
+        __jobs_render_grouped_table $tprochgroups [list {Job ID} Database Date Workload Geomean Status] "No TPROC-H jobs found in database file [getdatabasefile]"
         wapp-subst {</div>
 }
         # Benchmark Activity
@@ -2056,7 +2057,7 @@ proc wapp-page-jobs {} {
     if {[dict exists $paramdict cmd] && [dict get $paramdict cmd] eq "profilediff"} {
         if {![dict exists $paramdict base_pid] || ![dict exists $paramdict new_pid]} {
             common-header
-            wapp-subst {<p style="color:#b00; font-weight:600;">Please select one Base profile and one New profile to compare.</p>}
+            wapp-subst {<p data-hdb-compare-error="true">Please select one Base profile and one New profile to compare.</p>}
             common-footer
             return
         }
@@ -2064,19 +2065,19 @@ proc wapp-page-jobs {} {
         set new_pid [dict get $paramdict new_pid]
         if {![string is integer -strict $base_pid] || ![string is integer -strict $new_pid]} {
             common-header
-            wapp-subst {<p style="color:#b00; font-weight:600;">Invalid profile selection.</p>}
+            wapp-subst {<p data-hdb-compare-error="true">Invalid profile selection.</p>}
             common-footer
             return
         }
         if {$base_pid == $new_pid} {
             common-header
-            wapp-subst {<p style="color:#b00; font-weight:600;">Base and New profiles must be different.</p>}
+            wapp-subst {<p data-hdb-compare-error="true">Base and New profiles must be different.</p>}
             common-footer
             return
         }
         set chart [jobs $base_pid getchart diff:$new_pid]
         wapp-content-security-policy { default-src 'self'; style-src 'self' 'unsafe-inline' *; img-src * data:; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; }
-        wapp-subst {<link href="%url(/style.css)" rel="stylesheet">}
+        wapp-subst {<link href="%url(/style.css)" rel="stylesheet"><link href="%url([wapp-param BASE_URL]/hdb-theme.css)" rel="stylesheet"><script src="%url([wapp-param BASE_URL]/hdb-theme.js)"></script>}
         set d ""
         foreach l [split $chart \n] {
             if {[string match "*Compare summary*" $l]} {
@@ -2095,14 +2096,18 @@ proc wapp-page-jobs {} {
     if {[dict exists $paramdict jobid] && [dict exists $paramdict index]} {
         set jobid [dict get $paramdict jobid]
         if {![__job_exists $jobid]} {
-            dict set jsondict error message "Jobid $jobid does not exist"
-            wapp-2-json 2 $jsondict
+            hdb_state_page "Job not found" "No saved job matches ID $jobid."
             return
         }
 
         common-header
-        wapp-subst "<h3 class='title'>Job:%html($jobid)</h3>\n"
-        wapp-trim {<div class='hammerdb' data-title='Jobs Index'>}
+        wapp-subst "<h3 class='title'>Job: %html($jobid)</h3>\n"
+        # Job workspace metadata v2: escaped display values, unchanged API routes.
+        set headerbm [string map {TPC TPROC} [join [hdbjobs eval {SELECT bm FROM JOBMAIN WHERE JOBID=$jobid}]]]
+        set headerdb [join [hdbjobs eval {SELECT db FROM JOBMAIN WHERE JOBID=$jobid}]]
+        set headerts [join [hdbjobs eval {SELECT timestamp FROM JOBMAIN WHERE JOBID=$jobid}]]
+        wapp-subst {<dl class="hdb-job-metadata"><div><dt>Benchmark</dt><dd>%html($headerbm)</dd></div><div><dt>Database</dt><dd>%html($headerdb)</dd></div><div><dt>Timestamp</dt><dd>%html($headerts)</dd></div></dl>}
+        wapp-trim {<div class='hammerdb' data-title='Jobs Index' data-hdb-job-index='true'>}
         wapp-subst {<div><ol style='column-width: 20ex;'>\n}
 
         # summary link
@@ -2621,7 +2626,7 @@ proc wapp-page-jobs {} {
         }
 
         wapp-content-security-policy { default-src 'self'; style-src 'self' 'unsafe-inline' *; img-src * data:; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; }
-        wapp-subst {<link href="%url(/style.css)" rel="stylesheet">}
+        wapp-subst {<link href="%url(/style.css)" rel="stylesheet"><link href="%url([wapp-param BASE_URL]/hdb-theme.css)" rel="stylesheet"><script src="%url([wapp-param BASE_URL]/hdb-theme.js)"></script>}
         foreach l [split [getchart $profileid 0 "profile"] \n] {
             if {[string equal [string trim $l] "<body>"]} {
                 set l "\t<body>\n\t<p><img src='$B/logo.png' width='55' height='60'></p>"
@@ -2730,16 +2735,19 @@ if {$rawmode} {
     # grouped by VU
     if {[llength [dict keys $paramdict]] eq 1} {
         common-header
-        wapp-subst "<h3 class='title'>Job:%html($jobid)</h3>\n"
+        wapp-subst "<h3 class='title'>Job: %html($jobid)</h3>\n"
         set back "$B/jobs?jobid=$jobid&index"
         set raw  "$B/jobs?jobid=$jobid&raw=1"
         wapp-subst "<p><a href='%html($back)'>Back</a> | <a href='%html($raw)'>Raw</a></p>\n"
 
+        hdb_output_status $jobid
+
         # same rows as raw JSON
         set rows [hdbjobs eval {SELECT VU,OUTPUT FROM JOBOUTPUT WHERE JOBID=$jobid}]
+        hdb_output_originals $rows
         if {[llength $rows] < 2} {
             wapp-subst "<h4>Output</h4>\n"
-            __pre_block "(empty)"
+            hdb_empty_card "No output recorded" "This job has no saved virtual-user output."
             common-footer
             return
         }
@@ -2781,7 +2789,7 @@ if {$rawmode} {
             return
         }
         common-header
-        wapp-subst "<h3 class='title'>Job:%html($jobid)</h3>\n"
+        wapp-subst "<h3 class='title'>Job: %html($jobid)</h3>\n"
         set back "$B/jobs?jobid=$jobid&index"
         set raw  "$B/jobs?jobid=$jobid&raw=1"
         wapp-subst "<p><a href='%html($back)'>Back</a> | <a href='%html($raw)'>Raw</a></p>\n"
@@ -2843,7 +2851,7 @@ if {$rawmode} {
     } {
         if {[dict exists $paramdict $k]} {
             common-header
-            wapp-subst "<h3 class='title'>Job:%html($jobid)</h3>\n"
+            wapp-subst "<h3 class='title'>Job: %html($jobid)</h3>\n"
             set back "$B/jobs?jobid=$jobid&index"
             set raw  "$B/jobs?jobid=$jobid&$k&raw=1"
             wapp-subst "<p><a href='%html($back)'>Back</a> | <a href='%html($raw)'>Raw</a></p>\n"
@@ -2867,13 +2875,14 @@ if {$rawmode} {
                 }
                 dict {
                      set v [join [hdbjobs eval {SELECT jobdict FROM JOBMAIN WHERE JOBID=$jobid}]]
+                     set config $v
                      set v [__norm_pre $v]
                      if {[info commands is-dict] ne ""} {
                          if {[is-dict $v]} { set v [pretty_tcl_dict $v] }
                      } else {
                          if {![catch {dict size $v}]} { set v [pretty_tcl_dict $v] }
                      }
-                     __pre_block $v
+                     hdb_config_view $config $v
                 }
                 status {
                     set v [join [hdbjobs eval {SELECT OUTPUT FROM JOBOUTPUT WHERE JOBID=$jobid AND VU=0}]]
@@ -2901,7 +2910,7 @@ if {$rawmode} {
                             set v [join $lines "\n"]
                         }
                     }
-                    __pre_block $v
+                    hdb_system_view $js $v
                 }
                 timestamp {
                     set ts [join [hdbjobs eval {SELECT timestamp FROM JOBMAIN WHERE JOBID=$jobid}]]
@@ -2918,7 +2927,7 @@ if {$rawmode} {
     # result/tcount/metrics/timing unchanged
     if {[dict exists $paramdict result]} {
         wapp-content-security-policy { default-src 'self'; style-src 'self' 'unsafe-inline' *; img-src * data:; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; }
-        wapp-subst {<link href="%url(/style.css)" rel="stylesheet">}
+        wapp-subst {<link href="%url(/style.css)" rel="stylesheet"><link href="%url([wapp-param BASE_URL]/hdb-theme.css)" rel="stylesheet"><script src="%url([wapp-param BASE_URL]/hdb-theme.js)"></script>}
         foreach l [split [getchart $jobid 1 "result"] \n] {
             if {[string equal [string trim $l] "<body>"]} {
                 set l "\t<body>\n\t<p><img src='$B/logo.png' width='55' height='60'></p>"
@@ -2933,7 +2942,7 @@ if {$rawmode} {
 
     if {[dict exists $paramdict timing]} {
         wapp-content-security-policy { default-src 'self'; style-src 'self' 'unsafe-inline' *; img-src * data:; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; }
-        wapp-subst {<link href="%url(/style.css)" rel="stylesheet">}
+        wapp-subst {<link href="%url(/style.css)" rel="stylesheet"><link href="%url([wapp-param BASE_URL]/hdb-theme.css)" rel="stylesheet"><script src="%url([wapp-param BASE_URL]/hdb-theme.js)"></script>}
         foreach l [split [getchart $jobid 1 "timing"] \n] {
             if {[string equal [string trim $l] "<body>"]} {
                 set l "\t<body>\n\t<p><img src='$B/logo.png' width='55' height='60'></p>"
@@ -2948,7 +2957,7 @@ if {$rawmode} {
 
     if {[dict exists $paramdict tcount]} {
         wapp-content-security-policy { default-src 'self'; style-src 'self' 'unsafe-inline' *; img-src * data:; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; }
-        wapp-subst {<link href="%url(/style.css)" rel="stylesheet">}
+        wapp-subst {<link href="%url(/style.css)" rel="stylesheet"><link href="%url([wapp-param BASE_URL]/hdb-theme.css)" rel="stylesheet"><script src="%url([wapp-param BASE_URL]/hdb-theme.js)"></script>}
         foreach l [split [getchart $jobid 1 "tcount"] \n] {
             if {[string equal [string trim $l] "<body>"]} {
                 set l "\t<body>\n\t<p><img src='$B/logo.png' width='55' height='60'></p>"
@@ -2963,7 +2972,7 @@ if {$rawmode} {
 
     if {[dict exists $paramdict metrics]} {
         wapp-content-security-policy { default-src 'self'; style-src 'self' 'unsafe-inline' *; img-src * data:; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; }
-        wapp-subst {<link href="%url(/style.css)" rel="stylesheet">}
+        wapp-subst {<link href="%url(/style.css)" rel="stylesheet"><link href="%url([wapp-param BASE_URL]/hdb-theme.css)" rel="stylesheet"><script src="%url([wapp-param BASE_URL]/hdb-theme.js)"></script>}
         foreach l [split [getchart $jobid 1 "metrics"] \n] {
             if {[string equal [string trim $l] "<body>"]} {
                 set l "\t<body>\n\t<p><img src='$B/logo.png' width='55' height='60'></p>"
