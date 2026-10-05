@@ -5,6 +5,116 @@ proc putscli { output } {
 #    TclReadLine::print "\r"
 }
 
+
+# Pipelines needs the CI configuration in the Web Service. Since v6.1 ci.db
+# contains overrides only, load ci.xml as the base and merge v2 overrides.
+proc ws_ci_read_overrides {} {
+    set sqlitedb [CheckSQLiteDB "ci"]
+
+    if {$sqlitedb eq "" || ![file exists $sqlitedb]} {
+        return ""
+    }
+
+    catch {ciws close}
+    if {[catch {sqlite3 ciws $sqlitedb}]} {
+        return ""
+    }
+    catch {ciws timeout 30000}
+
+    if {[catch {
+        set version [ciws eval {SELECT val FROM "_ci_meta" WHERE key='schema_version' LIMIT 1}]
+    }] || [string trim $version] ne "2"} {
+        catch {ciws close}
+        return ""
+    }
+
+    set overrides [dict create]
+    if {[catch {
+        set tbllist [ciws eval {SELECT name FROM sqlite_master WHERE type='table'}]
+    }]} {
+        catch {ciws close}
+        return ""
+    }
+
+    foreach tbl $tbllist {
+        if {$tbl eq "_ci_meta"} {
+            continue
+        }
+
+        if {$tbl eq "common"} {
+            set subdict [dict create]
+            if {[catch {
+                ciws eval "SELECT key, val FROM \"$tbl\"" {
+                    dict set subdict $key $val
+                }
+            }]} {
+                continue
+            }
+            dict set overrides common $subdict
+            continue
+        }
+
+        if {![regexp {^([^_]+)_(.+)$} $tbl -> top section]} {
+            continue
+        }
+
+        set secdict [dict create]
+        if {[catch {
+            ciws eval "SELECT key, val FROM \"$tbl\"" {
+                dict set secdict $key $val
+            }
+        }]} {
+            continue
+        }
+        dict set overrides $top $section $secdict
+    }
+
+    catch {ciws close}
+
+    if {[dict size $overrides] == 0} {
+        return ""
+    }
+    return $overrides
+}
+
+proc ws_ci_init_config {} {
+    global cidict dirname
+
+    set cidict [dict create]
+    set ciplanxml [file join $dirname ci.xml]
+    if {![file exists $ciplanxml]} {
+        return
+    }
+
+    if {[catch {
+        set cidict [::XML::To_Dict_Ml $ciplanxml]
+    }]} {
+        set cidict [dict create]
+        return
+    }
+
+    set override_cfg [ws_ci_read_overrides]
+    if {$override_cfg eq ""} {
+        return
+    }
+
+    foreach top [dict keys $override_cfg] {
+        if {$top eq "common"} {
+            foreach key [dict keys [dict get $override_cfg common]] {
+                dict set cidict common $key [dict get $override_cfg common $key]
+            }
+        } else {
+            foreach section [dict keys [dict get $override_cfg $top]] {
+                foreach key [dict keys [dict get $override_cfg $top $section]] {
+                    dict set cidict $top $section $key [dict get $override_cfg $top $section $key]
+                }
+            }
+        }
+    }
+}
+
+ws_ci_init_config
+
 proc is-dict {value} {
     #appx dictionary check
     return [expr {[string is list $value] && ([llength $value]&1) == 0}]
