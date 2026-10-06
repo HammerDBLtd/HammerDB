@@ -1225,6 +1225,13 @@ html .hdb-workspace-layout .hdb-form,
 html .hdb-workspace-layout .hdb-form .hdb-table-wrap,
 html .hdb-workspace-layout .hdb-form .hdb-actions {width:100%!important;max-width:none!important;box-sizing:border-box;}
 
+/* Full-width pipeline reference controls v1 */
+html .hdb-workspace-layout #runform,
+html .hdb-workspace-layout select[name="tag_sel"],
+html .hdb-workspace-layout input[name="ref_custom"] {
+  width:100%!important;max-width:none!important;min-width:0;box-sizing:border-box;
+}
+
 }
 }
 
@@ -1578,7 +1585,7 @@ proc wapp-page-hdb-theme.js {} {
             const metric=/\bTPM\b|QUERY SET/i.test(name)?1:0;
             const isNew=comparison&&/\bNew\b/i.test(name);
             const db=isNew?newDb:baseDb;
-            if(isNew&&baseDb&&baseDb===newDb)colour=['#FF7900','#ffbc80'][metric];
+            if(isNew&&baseDb&&baseDb===newDb)colour=(dark?['#F472B6','#F9A8D4']:['#BE185D','#DB2777'])[metric];
             else if(dbColours[db])colour=dbColours[db][metric];
             else if(typeof originalColours[i]==='string')colour=originalColours[i];
           }
