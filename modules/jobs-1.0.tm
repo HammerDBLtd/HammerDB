@@ -1816,16 +1816,14 @@ proc wapp-page-jobs {} {
         return
     }
 
-    if {$paramlen eq 0 || $query eq ""} {
+    # Split workload pages v1
+    if {$paramlen eq 0 || $query eq "" || ([dict size $paramdict] == 1 && [dict exists $paramdict view] && [dict get $paramdict view] in {tprocc tproch})} {
+        set workload_view tprocc
+        if {[dict exists $paramdict view]} {set workload_view [dict get $paramdict view]}
         set topjobs [gettopjobs]
         home-common-header
-        wapp-subst {<div class="hdb-page">
+        wapp-subst {<div class="hdb-page" data-hdb-jobs-view="%html($workload_view)">
 }
-        wapp-subst {<div class="hdb-section">
-}
-        wapp-subst {<h3 class="title" id="jobs-tprocc">TPROC-C</h3>}
-        wapp-trim {<div class='hammerdb' data-title='TPROC-C'>}
-
         set tproccgroups [dict create]
         set tprochgroups [dict create]
 
@@ -1912,10 +1910,17 @@ proc wapp-page-jobs {} {
             }
         }
 
+        if {$workload_view eq "tprocc"} {
+        wapp-subst {<div class="hdb-section">
+}
+        wapp-subst {<h3 class="title" id="jobs-tprocc">TPROC-C</h3>}
+        wapp-trim {<div class='hammerdb' data-title='TPROC-C'>}
+
         __jobs_render_grouped_table $tproccgroups [list {Job ID} Database Date Workload NOPM Status] "No TPROC-C runs found in database file [getdatabasefile]"
         wapp-subst {</div>
 }
 
+        wapp-subst {</div>}
         # Profiles table
         set profcount 0
         if {![info exists ::profile_dbdesc]} {
@@ -1984,6 +1989,8 @@ proc wapp-page-jobs {} {
         wapp-subst {</div>
 }
 
+        }
+        if {$workload_view eq "tproch"} {
         # TPROC-H
         wapp-subst {<div class="hdb-section">
 }
@@ -1992,6 +1999,8 @@ proc wapp-page-jobs {} {
         __jobs_render_grouped_table $tprochgroups [list {Job ID} Database Date Workload Geomean Status] "No TPROC-H jobs found in database file [getdatabasefile]"
         wapp-subst {</div>
 }
+        wapp-subst {</div>}
+        }
         # Benchmark Activity
         wapp-subst {
         <div id="jobs-activity" class="hdb-activity">
@@ -2050,7 +2059,7 @@ proc wapp-page-jobs {} {
 
         })();
         </script>"
-        main-footer
+        wapp-subst {</div></body></html>}
         return
     }
 
@@ -2075,6 +2084,18 @@ proc wapp-page-jobs {} {
             common-footer
             return
         }
+        set hdb_base_db [lindex [hdbjobs eval {SELECT db FROM JOBMAIN WHERE profile_id=$base_pid LIMIT 1}] 0]
+        set hdb_new_db [lindex [hdbjobs eval {SELECT db FROM JOBMAIN WHERE profile_id=$new_pid LIMIT 1}] 0]
+        # Comparison legend versions v1
+        foreach {side pid} [list base $base_pid new $new_pid] {
+            set versions {}
+            foreach jid [hdbjobs eval {SELECT jobid FROM JOBMAIN WHERE profile_id=$pid ORDER BY timestamp DESC}] {
+                set version [get_dbversion $jid]
+                if {$version ne "" && $version ni $versions} {lappend versions $version}
+            }
+            set hdb_${side}_version [join $versions { / }]
+        }
+        wapp-subst {<span hidden data-hdb-comparison-dbs="true" data-base-db="%html($hdb_base_db)" data-new-db="%html($hdb_new_db)" data-base-version="%html($hdb_base_version)" data-new-version="%html($hdb_new_version)"></span>}
         set chart [jobs $base_pid getchart diff:$new_pid]
         wapp-content-security-policy { default-src 'self'; style-src 'self' 'unsafe-inline' *; img-src * data:; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; }
         wapp-subst {<link href="%url(/style.css)" rel="stylesheet"><link href="%url([wapp-param BASE_URL]/hdb-theme.css)" rel="stylesheet"><script src="%url([wapp-param BASE_URL]/hdb-theme.js)"></script>}

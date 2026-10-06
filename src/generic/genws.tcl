@@ -1211,6 +1211,20 @@ html #ci-log-panel > summary {
   border-radius:8px;
 }
 
+/* Workload pages and responsive widths v1 */
+html .hdb-report,html .hdb-report-table,html .hdb-chart-page,html .hdb-chart {width:100%!important;max-width:none!important;min-width:0;box-sizing:border-box;}
+html .hdb-workspace-layout .hdb-section,html .hdb-workspace-layout .hdb-report,html .hdb-workspace-layout .hdb-chart-page,html .hdb-workspace-layout .hdb-chart,html .hdb-workspace-layout .aut-row,html .hdb-workspace-layout .aut-actions,html .hdb-workspace-layout .hdb-actions-left {width:100%!important;max-width:none!important;min-width:0;box-sizing:border-box;}
+html .hdb-workspace-layout .hdb-section > select,html .hdb-workspace-layout .aut-row input[type="text"] {width:100%!important;max-width:none!important;box-sizing:border-box;}
+html .hdb-workspace-layout .hdb-table-wrap {width:100%;max-width:100%;overflow-x:auto;}
+html .hdb-workspace-layout .hdb-table,html .hdb-workspace-layout .hdb-report-table {width:100%;max-width:none!important;}
+html .hdb-workspace-layout .hdb-job-workspace,html .hdb-workspace-layout .hdb-profile-workspace {min-width:0;}
+html .hdb-sidebar nav a[data-job-view][aria-current="page"] {box-shadow:inset 3px 0 var(--brand);color:var(--text);background:var(--panel);}
+
+/* Full-width performance profile form v1 */
+html .hdb-workspace-layout .hdb-form,
+html .hdb-workspace-layout .hdb-form .hdb-table-wrap,
+html .hdb-workspace-layout .hdb-form .hdb-actions {width:100%!important;max-width:none!important;box-sizing:border-box;}
+
 }
 }
 
@@ -1539,12 +1553,35 @@ proc wapp-page-hdb-theme.js {} {
       el.classList.add('hdb-modern-chart');
       const current = chart.getOption();
       const comparison = (current.series || []).some(s => /\b(Base|New)\b/i.test(s.name || ''));
+      // Database palette from jobs-1.0.tm. Keep the two metric shades.
+      const dbColours={maria:['#42ADB6','#9fd7dc'],pg:['#062671','#457af5'],db2:['#00CC00','#66ff66'],mssql:['#F2C811','#FFE066'],ora:['#D00000','#ff6868'],mysql:['#FF7900','#ffbc80'],vsql:['#6B4FBB','#b3a3e0']};
+      const dbKey=value=>{
+        const s=(value||'').toLowerCase();
+        if(/mariadb/.test(s))return 'maria';if(/postgres/.test(s))return 'pg';if(/db2/.test(s))return 'db2';
+        if(/mssql|sql server/.test(s))return 'mssql';if(/oracle/.test(s))return 'ora';if(/villagesql/.test(s))return 'vsql';if(/mysql/.test(s))return 'mysql';return '';
+      };
+      const context=win.document.querySelector('[data-hdb-comparison-dbs]');
+      const chartTitle=(current.title||[]).map(t=>t.text||'').join(' ');
+      const baseDb=context?dbKey(context.dataset.baseDb):dbKey(chartTitle.split(/relative to Base/i)[1]||chartTitle);
+      const newDb=context?dbKey(context.dataset.newDb):dbKey((chartTitle.split(/relative to Base/i)[0]||'').split(/Compare New/i)[1]||'');
+      if(!window.hdbOriginalLineColours)window.hdbOriginalLineColours=new WeakMap();
+      if(!window.hdbOriginalLineColours.has(chart))window.hdbOriginalLineColours.set(chart,(current.series||[]).map(s=>s.itemStyle?.color||s.lineStyle?.color));
+      const originalColours=window.hdbOriginalLineColours.get(chart);
+
       const options = {
         backgroundColor:'transparent', color:palette, animationDurationUpdate:250,
         textStyle:{color:text, fontFamily:'system-ui, -apple-system, Segoe UI, sans-serif'},
         series:(current.series || []).map((s, i) => {
           const name = s.name || '';
-          const colour = /\bNOPM\b|GEOMEAN/i.test(name) ? palette[0] : /\bTPM\b|QUERY SET/i.test(name) ? palette[1] : palette[i % palette.length];
+          let colour = /\bNOPM\b|GEOMEAN/i.test(name) ? palette[0] : /\bTPM\b|QUERY SET/i.test(name) ? palette[1] : palette[i % palette.length];
+          if(s.type==='line'){
+            const metric=/\bTPM\b|QUERY SET/i.test(name)?1:0;
+            const isNew=comparison&&/\bNew\b/i.test(name);
+            const db=isNew?newDb:baseDb;
+            if(isNew&&baseDb&&baseDb===newDb)colour=['#FF7900','#ffbc80'][metric];
+            else if(dbColours[db])colour=dbColours[db][metric];
+            else if(typeof originalColours[i]==='string')colour=originalColours[i];
+          }
           const result = {itemStyle:{color:colour, opacity:1}, label:{color:text}};
           if (s.type === 'line') {
             result.lineStyle = {color:colour, width:2.5};
@@ -1571,7 +1608,27 @@ proc wapp-page-hdb-theme.js {} {
       }
       if (current.title) options.title = current.title.map(() => ({left:16,top:12,textStyle:{color:text,fontSize:16,fontWeight:600,width:Math.max(180,el.clientWidth-40),overflow:'break'},subtextStyle:{color:muted}}));
       if (current.legend) options.legend = current.legend.map(() => ({left:'center',bottom:8,type:'scroll',textStyle:{color:text},inactiveColor:muted,itemWidth:18,itemHeight:8}));
-      if (current.grid && current.grid.length === 1) options.grid = [{left:24,right:24,top:88,bottom:64,containLabel:true}];
+      // Comparison legend layout v2: metric, then centred database/version.
+      if(comparison && options.legend){
+        const solid='path://M0 2 L30 2 L30 6 L0 6 Z';
+        const dashed='path://M0 2 L7 2 L7 6 L0 6 Z M11 2 L18 2 L18 6 L11 6 Z M22 2 L30 2 L30 6 L22 6 Z';
+        const labelWidth=Math.max(150,Math.min(240,(el.clientWidth-140)/4));
+        options.legend=options.legend.map(item=>({...item,itemWidth:30,itemHeight:8,
+          textStyle:{...item.textStyle,rich:{metric:{align:'center',width:labelWidth,lineHeight:22,fontWeight:600,color:text},detail:{align:'center',width:labelWidth,lineHeight:20,color:text}}},
+          data:(current.series||[]).map(s=>({name:s.name,icon:/\bNew\b/i.test(s.name||'')?dashed:solid})),
+          formatter:name=>{
+            const isNew=/\bNew\b/i.test(name);
+            const side=isNew?'New':'Base';
+            const db=context?(isNew?context.dataset.newDb:context.dataset.baseDb):'';
+            const version=context?(isNew?context.dataset.newVersion:context.dataset.baseVersion):'';
+            const metric=/\bTPM\b/i.test(name)?'TPM':/\bNOPM\b/i.test(name)?'NOPM':name;
+            // Escape rich-text delimiters in stored metadata.
+            const safe=value=>String(value||'').replace(/[{}|]/g,' ');
+            return '{metric|'+safe(metric)+'}\n{detail|'+safe(side+' - '+(db||'Database not recorded'))+'}\n{detail|'+safe(version||'Version not recorded')+'}';
+          }}));
+      }
+      if(options.xAxis) options.xAxis=options.xAxis.map(axis=>({...axis,nameLocation:'middle',nameGap:34,nameTextStyle:{...axis.nameTextStyle,align:'center'}}));
+      if (current.grid && current.grid.length === 1) options.grid = [{left:28,right:36,top:88,bottom:comparison?142:92,containLabel:true}];
       if (current.tooltip) options.tooltip = current.tooltip.map(() => ({backgroundColor:dark?'#111a2b':'#fff',borderColor:border,textStyle:{color:text},extraCssText:'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);'}));
       chart.setOption(options);
       chart.resize();
@@ -1835,6 +1892,32 @@ proc wapp-page-hdb-theme.js {} {
     const heading=document.querySelector('.hdb-support-page h1');
     if(heading&&heading.textContent==='Error')title='Error';
     if(title)document.title=title+' - HammerDB';
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
+})();
+/* Jobs workload navigation v1 */
+(() => {
+  const mount=()=>{
+    const page=document.querySelector('[data-hdb-jobs-view]');
+    const nav=document.querySelector('.hdb-sidebar nav');
+    if(!nav)return;
+    const brand=document.querySelector('.hdb-sidebar-brand');
+    const base=new URL(brand.href).pathname.replace(/\/jobs$/,'');
+    [...nav.querySelectorAll('a')].forEach(a=>{
+      const u=new URL(a.href);
+      if(u.hash==='#jobs-profiles')a.remove();
+      if(['#jobs-tprocc','#jobs-tproch','#jobs-activity'].includes(u.hash)){
+        if(!page){a.remove();return;}
+        if(u.hash==='#jobs-tprocc'){a.href=base+'/jobs';a.setAttribute('data-job-view','tprocc');}
+        if(u.hash==='#jobs-tproch'){a.href=base+'/jobs?view=tproch';a.setAttribute('data-job-view','tproch');}
+        if(u.hash==='#jobs-activity')a.href=base+'/jobs'+(page.dataset.hdbJobsView==='tproch'?'?view=tproch':'')+'#jobs-activity';
+      }
+    });
+    if(!page)nav.querySelectorAll('.hdb-sidebar-caption').forEach(p=>{if(p.textContent==='Job views')p.remove();});
+    if(page){
+      nav.querySelectorAll('[data-job-view]').forEach(a=>{a.removeAttribute('aria-current');if(a.dataset.jobView===page.dataset.hdbJobsView)a.setAttribute('aria-current','page');});
+      document.title='Jobs - '+(page.dataset.hdbJobsView==='tproch'?'TPROC-H':'TPROC-C')+' - HammerDB';
+    }
   };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
 })();
