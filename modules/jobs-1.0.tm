@@ -2697,6 +2697,22 @@ if {$rawmode} {
         return
     }
 
+    if {$section eq "dict"} {
+        set config [join [hdbjobs eval {SELECT jobdict FROM JOBMAIN WHERE JOBID=$jobid}]]
+        if {[catch {set payload [hdb_json_object $config 1]}]} {
+            set payload [hdb_json_object [dict create error "Stored configuration is not a valid dictionary" value $config]]
+        }
+        wapp-mimetype {application/json; charset=utf-8}
+        wapp-unsafe $payload
+        return
+    }
+    if {$section eq "system"} {
+        set payload [hdb_json_object [dict remove [getjobsystem $jobid] jobid extra]]
+        wapp-mimetype {application/json; charset=utf-8}
+        wapp-unsafe $payload
+        return
+    }
+
     # Otherwise: fetch raw value for the requested section
     set v ""
     switch $section {
@@ -2765,7 +2781,6 @@ if {$rawmode} {
 
         # same rows as raw JSON
         set rows [hdbjobs eval {SELECT VU,OUTPUT FROM JOBOUTPUT WHERE JOBID=$jobid}]
-        hdb_output_originals $rows
         if {[llength $rows] < 2} {
             wapp-subst "<h4>Output</h4>\n"
             hdb_empty_card "No output recorded" "This job has no saved virtual-user output."
@@ -2782,6 +2797,8 @@ if {$rawmode} {
         }
 
         wapp-subst "<h4>Output</h4>\n"
+
+        hdb_output_originals $rows
 
         # numeric VU order
         set vu_keys [lsort -integer [dict keys $vudict]]
@@ -4187,7 +4204,6 @@ if {$rawmode} {
 
           $line Add "lineSeries" -name "usr%" -data [ list $usrseries ] -itemStyle [ subst {color green opacity 0.90} ]
           $line Add "lineSeries" -name "sys%" -data [ list $sysseries ] -itemStyle [ subst {color red opacity 0.90} ]
-          $line Add "lineSeries" -name $irqSeriesName -data [ list $irqseries ] -itemStyle [ subst {color blue opacity 0.90} ]
 
           set html [ $line toHTML -title "$jobid " ]
           set html "<div class=\"print-avoid-break\"> $html </div>"

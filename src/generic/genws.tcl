@@ -182,7 +182,6 @@ proc wapp-page-env {} {
         if {$category eq "Service"} {hdb_kv_row "Working directory" [pwd]}
         wapp-unsafe {</tbody></table></details>}
     }
-    hdb_original_text $original
     hdb_info_footer
 }
 
@@ -950,7 +949,7 @@ proc hdb_kv_row {key value} {
 proc hdb_config_view {config original} {
     wapp-subst {<div class="hdb-config-view"><label class="hdb-search-label">Find a setting <input type="search" data-hdb-config-search placeholder="Search names or values"></label>}
     if {[catch {dict size $config}] || $config eq ""} {
-        hdb_empty_card "Structured configuration unavailable" "Use the original plain-text view below."
+        hdb_empty_card "Structured configuration unavailable" "Use JSON to inspect the recorded configuration."
     } else {
         dict for {group value} $config {
             wapp-subst {<details class="hdb-info-card" data-hdb-config-group open><summary>%html($group)</summary><table class="hdb-kv"><tbody>}
@@ -961,7 +960,6 @@ proc hdb_config_view {config original} {
         }
     }
     wapp-unsafe {<p data-hdb-no-settings hidden>No matching settings.</p>}
-    hdb_original_text $original
     wapp-unsafe {</div>}
 }
 proc hdb_system_view {system original} {
@@ -969,7 +967,7 @@ proc hdb_system_view {system original} {
         hdb_empty_card "System information not recorded" "No system information was saved for this job."
     } else {
         wapp-unsafe {<div class="hdb-system-grid">}
-        foreach {group keys} {Compute {hostname cpumodel cpucount memory system_vendor system_type} Software {os_name other_software} Storage {storage} Network {nic} Other {jobid cloud_instance extra}} {
+        foreach {group keys} {Compute {hostname cpumodel cpucount memory system_vendor system_type} Software {os_name other_software} Storage {storage} Network {nic} Cloud {cloud_instance}} {
             wapp-subst {<section class="hdb-info-card"><h2>%html($group)</h2><table class="hdb-kv"><tbody>}
             foreach key $keys {
                 set value ""
@@ -980,13 +978,11 @@ proc hdb_system_view {system original} {
         }
         wapp-unsafe {</div>}
     }
-    hdb_original_text $original
 }
 proc hdb_output_status {jobid} {
     set status [join [hdbjobs eval {SELECT OUTPUT FROM JOBOUTPUT WHERE JOBID=$jobid AND VU=0}]]
     wapp-unsafe {<div data-hdb-output-view></div>}
-    wapp-subst {<details class="hdb-info-card" open><summary>Recorded status</summary><pre>%html($status)</pre></details>}
-    hdb_original_text $status "View original status plain text"
+    wapp-subst {<details class="hdb-info-card" open><summary>Final status</summary><pre>%html($status)</pre></details>}
 }
 proc wapp-page-ui-preview {} {
     wapp-allow-xorigin-params
@@ -1232,6 +1228,35 @@ html .hdb-workspace-layout input[name="ref_custom"] {
   width:100%!important;max-width:none!important;min-width:0;box-sizing:border-box;
 }
 
+/* Unified JSON and output controls v2 */
+html .hdb-json-panel {background:#fff!important;color:#172033!important;border:1px solid #ccd3df;border-radius:8px;margin:12px 0 20px;min-width:0;}
+html .hdb-json-panel pre {background:#fff!important;color:#172033!important;white-space:pre!important;overflow:auto;padding:18px;margin:0;max-height:65vh;}
+html .hdb-data-toolbar {display:flex;justify-content:flex-end;gap:12px;margin:8px 0;}
+html .hdb-log-panel {min-width:0;max-width:100%;}
+html .hdb-log-panel pre {max-width:100%;box-sizing:border-box;}
+html mark {background:#ffe08a;color:#172033;}
+html mark.hdb-current-match {background:#ff7900;color:#111;outline:2px solid currentColor;}
+html .hdb-log-toolbar {display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+html p.no-print {margin-top:0!important;margin-bottom:4px!important;line-height:1.4;}
+
+/* Readable report printing v1 */
+@media print {
+  html,html[data-theme],html body {color-scheme:light!important;background:#fff!important;color:#111!important;--bg:#fff;--panel:#fff;--card:#fff;--raised:#eee;--text:#111;--muted:#333;--border:#ccc;--link:#185adb;}
+  html body h1,html body h2,html body h3,html body h4,html body p,
+  html body td,html body th,html body span,html body pre,html body a {color:#111!important;text-shadow:none!important;}
+  html .hdb-report,html .hdb-report-table,html .hdb-report-table td,
+  html .hdb-report-table th {background:#fff!important;}
+  html .hdb-data-toolbar,html .hdb-json-panel,html .no-print {display:none!important;}
+}
+
+/* Persistent output controls and aligned Help cards v1 */
+html [data-hdb-output-view] {position:sticky;top:0;z-index:20;background:var(--bg);padding:8px 0;border-bottom:1px solid var(--border);}
+html .hdb-log-toolbar [role="status"] {flex-basis:100%;min-height:1.5em;}
+html .hdb-help-grid > .hdb-info-card {display:flex;flex-direction:column;align-items:flex-start;}
+html .hdb-help-grid > .hdb-info-card > p:first-of-type {flex:1;}
+html .hdb-help-grid > .hdb-info-card > .hdb-action-link {margin-top:auto;}
+@media print {html [data-hdb-output-view] {position:static;}}
+
 }
 }
 
@@ -1241,7 +1266,56 @@ proc hdb_output_originals {rows} {
     set original ""
     foreach {vu output} $rows {append original "VU $vu\n$output\n\n"}
     if {$original eq ""} {set original "(empty)"}
-    hdb_original_text $original "View original output plain text"
+    wapp-subst {<details class="hdb-log-panel hdb-output-all"><summary>All</summary><pre>%html($original)</pre></details>}
+}
+
+# Explicit JSON objects: preserve setting values as strings, including leading zeros.
+proc hdb_json_string {value} {
+    set result "\""
+    foreach ch [split $value ""] {
+        scan $ch %c code
+        if {$ch eq "\""} {append result {\"}} elseif {$ch eq "\\"} {append result {\\}} elseif {$code < 32} {
+            append result [format {\u%04x} $code]
+        } elseif {$code > 65535} {
+            append result [format {\u%04x\u%04x} [expr {55296+(($code-65536)>>10)}] [expr {56320+(($code-65536)&1023)}]]
+        } elseif {$code > 126} {append result [format {\u%04x} $code]} else {append result $ch}
+    }
+    append result "\""
+    return $result
+}
+proc hdb_json_object {value {groups 0}} {
+    set pairs {}
+    dict for {key item} $value {
+        if {$groups && ![catch {dict size $item}]} {
+            set encoded [hdb_json_object $item]
+        } else {set encoded [hdb_json_string $item]}
+        lappend pairs "[hdb_json_string $key]:$encoded"
+    }
+    return "\{[join $pairs ,]\}"
+}
+
+# Server-generated output download v1
+proc wapp-page-job-output-download {} {
+    wapp-allow-xorigin-params
+    set jobid [wapp-param jobid ""]
+    if {![regexp {^[A-Za-z0-9_-]+$} $jobid]} {
+        wapp-reply-code {400 Bad Request}
+        wapp-mimetype {text/plain; charset=utf-8}
+        wapp-unsafe "Invalid job ID"
+        return
+    }
+    if {![hdbjobs exists {SELECT 1 FROM JOBMAIN WHERE jobid=$jobid}]} {
+        wapp-reply-code {404 Not Found}
+        wapp-mimetype {text/plain; charset=utf-8}
+        wapp-unsafe "Job not found"
+        return
+    }
+    wapp-mimetype {text/plain; charset=utf-8}
+    wapp-reply-extra Content-Disposition "attachment; filename=\"hammerdb-$jobid-output.txt\""
+    wapp-reply-extra Cache-Control {no-store}
+    foreach {vu output} [hdbjobs eval {SELECT VU,OUTPUT FROM JOBOUTPUT WHERE JOBID=$jobid ORDER BY VU,rowid}] {
+        wapp-unsafe "VU $vu\n$output\n\n"
+    }
 }
 
 proc wapp-page-hdb-theme.js {} {
@@ -1500,8 +1574,9 @@ proc wapp-page-hdb-theme.js {} {
       const sheet = document.querySelector('link[href*="hdb-theme.css"]');
       if (sheet && !doc.querySelector('link[href*="hdb-theme.css"]')) doc.head.append(sheet.cloneNode(true));
       const style = doc.createElement('style');
-      style.textContent = 'html body{max-width:none!important;margin:0!important;padding:16px!important;} body>p:has(>img),body>h3.title,.hdb-theme-toolbar{display:none!important;}';
+      style.textContent = 'html body{max-width:none!important;margin:0!important;padding:16px!important;} body>h3.title,.hdb-theme-toolbar{display:none!important;}';
       doc.head.append(style);
+      if(frame.contentWindow.hdbFixSectionLogo)frame.contentWindow.hdbFixSectionLogo();
       [...doc.querySelectorAll('a')].forEach(a => {
         const u = new URL(a.href);
         if (u.pathname !== jobsPath) return;
@@ -1538,7 +1613,7 @@ proc wapp-page-hdb-theme.js {} {
   const palette = ['#ff7900', '#5da9ff', '#39c6b5', '#b69cff', '#f2c75c', '#ef8ea5'];
   window.hdbPaintCharts = win => {
     if (!win || !win.echarts) return;
-    const dark = document.documentElement.dataset.theme === 'dark';
+    const dark = !win.hdbPrinting && document.documentElement.dataset.theme === 'dark';
     const text = dark ? '#ffffff' : '#0e1626';
     const muted = dark ? '#c3d0e5' : '#536176';
     const border = dark ? '#29364c' : '#e6eaf2';
@@ -1572,11 +1647,11 @@ proc wapp-page-hdb-theme.js {} {
       const baseDb=context?dbKey(context.dataset.baseDb):dbKey(chartTitle.split(/relative to Base/i)[1]||chartTitle);
       const newDb=context?dbKey(context.dataset.newDb):dbKey((chartTitle.split(/relative to Base/i)[0]||'').split(/Compare New/i)[1]||'');
       if(!window.hdbOriginalLineColours)window.hdbOriginalLineColours=new WeakMap();
-      if(!window.hdbOriginalLineColours.has(chart))window.hdbOriginalLineColours.set(chart,(current.series||[]).map(s=>s.itemStyle?.color||s.lineStyle?.color));
+      if(!window.hdbOriginalLineColours.has(chart))window.hdbOriginalLineColours.set(chart,(current.series||[]).map((s,i)=>s.itemStyle?.color||s.lineStyle?.color||(Array.isArray(current.color)?current.color[i%current.color.length]:null)));
       const originalColours=window.hdbOriginalLineColours.get(chart);
 
       const options = {
-        backgroundColor:'transparent', color:palette, animationDurationUpdate:250,
+        backgroundColor:'transparent', color:palette, animation:!win.hdbPrinting, animationDurationUpdate:win.hdbPrinting?0:250,
         textStyle:{color:text, fontFamily:'system-ui, -apple-system, Segoe UI, sans-serif'},
         series:(current.series || []).map((s, i) => {
           const name = s.name || '';
@@ -1589,11 +1664,17 @@ proc wapp-page-hdb-theme.js {} {
             else if(dbColours[db])colour=dbColours[db][metric];
             else if(typeof originalColours[i]==='string')colour=originalColours[i];
           }
+          // CPU and I/O use fixed semantic colours, independent of database.
+          const metricColours={'usr%':'#008000','user%':'#008000','sys%':'#FF0000','irq%':'#0000FF','iops':'#9467BD','mbps':'#7F7F7F'};
+          const metricColour=metricColours[name.trim().toLowerCase()];
+          if(metricColour) colour=metricColour;
+          else if(s.type!=='line' && typeof originalColours[i]==='string') colour=originalColours[i];
           const result = {itemStyle:{color:colour, opacity:1}, label:{color:text}};
           if (s.type === 'line') {
             result.lineStyle = {color:colour, width:2.5};
             result.symbolSize = 5;
-            const rgb = [1,3,5].map(offset => parseInt(colour.slice(offset,offset+2),16)).join(',');
+            const normalized=({green:'#008000',red:'#FF0000',blue:'#0000FF'})[colour.toLowerCase()]||colour;
+            const rgb = [1,3,5].map(offset => parseInt(normalized.slice(offset,offset+2),16)).join(',');
             result.areaStyle = {opacity:1, color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[
               {offset:0,color:'rgba('+rgb+','+(comparison ? '0.24' : '0.40')+')'},
               {offset:1,color:'rgba('+rgb+',0)'}
@@ -1813,16 +1894,7 @@ proc wapp-page-hdb-theme.js {} {
         const summary=document.createElement('summary');summary.textContent=heading.textContent+' · '+pre.textContent.split('\n').length+' lines';
         heading.replaceWith(details);details.append(summary,pre);panels.push(details);
       });
-      const toolbar=document.createElement('div');toolbar.className='hdb-log-toolbar';
-      const search=document.createElement('input');search.type='search';search.placeholder='Find text in virtual-user output';search.setAttribute('aria-label','Search output');toolbar.append(search);
-      const feedback=document.createElement('span');feedback.setAttribute('role','status');
-      const text=()=>panels.map(p=>p.querySelector('summary').textContent+'\n'+p.querySelector('pre').textContent).join('\n\n');
-      const button=(label,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.addEventListener('click',fn);toolbar.append(b);return b;};
-      button('Copy output',async()=>{try{await navigator.clipboard.writeText(text());feedback.textContent='Copied';}catch{feedback.textContent='Copy unavailable; use Download output.';}});
-      button('Download output',()=>{const url=URL.createObjectURL(new Blob([text()],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='hammerdb-job-output.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
-      const wrap=button('Disable line wrap',()=>{const noWrap=output.classList.toggle('hdb-no-wrap');panels.forEach(p=>p.querySelector('pre').style.whiteSpace=noWrap?'pre':'pre-wrap');wrap.textContent=noWrap?'Enable line wrap':'Disable line wrap';});
-      search.addEventListener('input',()=>{const term=search.value.toLowerCase();let count=0;panels.forEach(p=>{p.hidden=!p.querySelector('pre').textContent.toLowerCase().includes(term);if(!p.hidden){count++;if(term)p.open=true;}});feedback.textContent=count+' virtual-user sections match';});
-      toolbar.append(feedback);output.append(toolbar);
+
     }
     // Existing empty table rows retain their content and gain a quieter panel style.
     document.querySelectorAll('td[colspan]').forEach(cell=>{if(/^No .*found|^No .*available/.test(cell.textContent.trim()))cell.classList.add('hdb-empty-cell');});
@@ -1845,16 +1917,7 @@ proc wapp-page-hdb-theme.js {} {
       if(pipelines)pipelines.after(help);else if(first)first.after(help);else nav.prepend(help);
     }
     if(location.pathname===base+'/help')help.setAttribute('aria-current','page');
-    const query=new URLSearchParams(location.search);
-    if(location.pathname===base+'/ci'&&(query.has('ci_id')||query.has('refname'))){
-      const caption=document.createElement('p');caption.className='hdb-sidebar-caption';caption.textContent='Pipeline features';
-      const link=document.createElement('a');link.textContent='Open build output';
-      const url=new URL(base+'/ci',location.origin);
-      for(const key of ['ci_id','refname'])if(query.has(key))url.searchParams.set(key,query.get(key));
-      url.searchParams.set('index','build_output');link.href=url.href;
-      if(query.get('index')==='build_output')link.setAttribute('aria-current','page');
-      nav.append(caption,link);
-    }
+
   };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
 })();
@@ -1927,6 +1990,126 @@ proc wapp-page-hdb-theme.js {} {
     }
   };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
+})();
+
+/* Unified JSON viewer and output search v2 */
+(() => {
+  const mount=()=>{
+    const links=[...document.querySelectorAll('a')].filter(a=>{
+      const label=a.textContent.trim();
+      return label==='Raw'||/^(Profile|Result|Timing|Transaction Count|Metrics) Data$/.test(label);
+    });
+    if(links.length){
+      const bar=document.createElement('div');bar.className='hdb-data-toolbar';
+      const panel=document.createElement('section');panel.className='hdb-json-panel';panel.hidden=true;
+      const pre=document.createElement('pre');pre.tabIndex=0;panel.append(pre);
+      let loaded=false;
+      const link=links[0];link.textContent='JSON';link.setAttribute('aria-expanded','false');
+      const old=link.parentElement;
+      bar.append(link);
+      const host=document.querySelector('.hdb-profile-workspace')||document.body;
+      const header=host.querySelector(':scope > .hdb-service-header');
+      if(header)header.after(bar);else host.prepend(bar);
+      bar.after(panel);
+      links.slice(1).forEach(a=>a.remove());
+      if(old.tagName==='P' && old.textContent.trim().replace(/[|\s]/g,'')==='Back')old.remove();
+      link.addEventListener('click',async event=>{
+        event.preventDefault();panel.hidden=!panel.hidden;link.setAttribute('aria-expanded',String(!panel.hidden));
+        if(panel.hidden||loaded)return;
+        pre.textContent='Loading JSON…';
+        try{
+          const response=await fetch(link.href,{headers:{Accept:'application/json'}});
+          if(!response.ok)throw new Error('HTTP '+response.status);
+          const value=await response.json();pre.textContent=JSON.stringify(value,null,2);loaded=true;
+        }catch(error){pre.textContent='Unable to load JSON: '+error.message+'. Close and reopen to retry.';}
+      });
+    }
+    const output=document.querySelector('[data-hdb-output-view]');
+    if(!output)return;
+    const panels=[...document.querySelectorAll('.hdb-log-panel:not(.hdb-output-all)')];
+    const originals=panels.map(p=>p.querySelector('pre').textContent);
+    const toolbar=document.createElement('div');toolbar.className='hdb-log-toolbar';
+    const input=document.createElement('input');input.type='search';input.placeholder='Find text';input.setAttribute('aria-label','Find text in output');toolbar.append(input);
+    const feedback=document.createElement('span');feedback.setAttribute('role','status');
+    let matches=[],active=-1;
+    const button=(label,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.addEventListener('click',fn);toolbar.append(b);return b;};
+    const move=delta=>{
+      if(!matches.length)return;
+      if(active>=0)matches[active].classList.remove('hdb-current-match');
+      active=(active+delta+matches.length)%matches.length;
+      const mark=matches[active];mark.classList.add('hdb-current-match');mark.closest('details').open=true;
+      // Scroll the log and this frame only, keeping the controls accessible.
+      const pre=mark.closest('pre');
+      if(pre){const rect=pre.getBoundingClientRect();const hit=mark.getBoundingClientRect();
+        if(hit.top<rect.top||hit.bottom>rect.bottom)pre.scrollTop+=hit.top-rect.top-pre.clientHeight/2;}
+      const hit=mark.getBoundingClientRect();const pinned=output.getBoundingClientRect().height+12;
+      if(hit.top<pinned)window.scrollBy(0,hit.top-pinned);
+      else if(hit.bottom>window.innerHeight-12)window.scrollBy(0,hit.bottom-window.innerHeight+12);
+      feedback.textContent=(active+1)+' of '+matches.length+' matches';
+    };
+    const previous=button('Previous',()=>move(-1));const next=button('Next',()=>move(1));
+    const find=errors=>{
+      matches=[];active=-1;
+      panels.forEach((panel,i)=>{
+        const pre=panel.querySelector('pre');pre.replaceChildren();
+        const value=originals[i];const lower=value.toLowerCase();const term=input.value.toLowerCase();
+        const ranges=[];
+        if(errors){const re=/failed|error/gi;let m;while((m=re.exec(value)))ranges.push([m.index,m[0].length]);}
+        else if(term){let pos=0;while((pos=lower.indexOf(term,pos))>=0){ranges.push([pos,term.length]);pos+=term.length;}}
+        let last=0;
+        ranges.forEach(([start,length])=>{pre.append(document.createTextNode(value.slice(last,start)));const mark=document.createElement('mark');mark.textContent=value.slice(start,start+length);pre.append(mark);matches.push(mark);last=start+length;});
+        pre.append(document.createTextNode(value.slice(last)));if(ranges.length)panel.open=true;
+      });
+      previous.disabled=next.disabled=!matches.length;feedback.textContent=matches.length+' matches';
+      if(matches.length)move(1);
+    };
+    button('Find errors',()=>{input.value='';find(true);});
+    input.addEventListener('input',()=>find(false));input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();move(e.shiftKey?-1:1);}});
+    document.querySelectorAll('.hdb-log-panel pre,.hdb-output-all pre').forEach(pre=>{
+      pre.style.setProperty('white-space','pre-wrap','important');
+      pre.style.setProperty('overflow-wrap','anywhere','important');
+    });
+    const allText=()=>document.querySelector('.hdb-output-all pre')?.textContent||originals.join('\n\n');
+    button('Copy output',async()=>{try{await navigator.clipboard.writeText(allText());}catch{feedback.textContent='Copy unavailable. Use Download output.';}});
+    const download=document.createElement('a');download.textContent='Download output';download.className='hdb-action-link';
+    const downloadUrl=new URL(location.href);downloadUrl.pathname=downloadUrl.pathname.replace(/\/jobs\/?$/,'/job-output-download');
+    const jobid=new URLSearchParams(location.search).get('jobid');
+    downloadUrl.search='';downloadUrl.hash='';downloadUrl.searchParams.set('jobid',jobid||'');
+    download.href=downloadUrl.href;download.download='hammerdb-'+jobid+'-output.txt';toolbar.append(download);
+    toolbar.append(feedback);output.replaceChildren(toolbar);previous.disabled=next.disabled=true;
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
+})();
+
+/* Section logos and print colours v1 */
+(() => {
+  window.hdbFixSectionLogo=()=>{
+    const params=new URLSearchParams(location.search);
+    const report=params.has('summary')&&params.has('jobid');
+    const embedded=!!window.frameElement;
+    const metrics=params.has('metrics')&&params.has('jobid');
+    if(!report&&!embedded&&!metrics)return;
+    let kept=false;
+    document.querySelectorAll('img').forEach(img=>{
+      if(!/\/logo(?:-full)?\.png$/.test(new URL(img.src,location.href).pathname))return;
+      if(img.closest('.hdb-sidebar'))return;
+      const show=report&&!kept;
+      if(show)kept=true;
+      img.style.setProperty('display',show?'block':'none','important');
+      const wrapper=img.parentElement;
+      if(wrapper.tagName==='P'&&wrapper.children.length===1&&!wrapper.textContent.trim()){
+        wrapper.style.setProperty('display',show?'block':'none','important');
+      }
+    });
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',window.hdbFixSectionLogo,{once:true});
+  else window.hdbFixSectionLogo();
+  const repaint=printing=>{
+    window.hdbPrinting=printing;
+    if(window.hdbPaintCharts)window.hdbPaintCharts(window);
+  };
+  window.addEventListener('beforeprint',()=>repaint(true));
+  window.addEventListener('afterprint',()=>repaint(false));
 })();
 
 }
