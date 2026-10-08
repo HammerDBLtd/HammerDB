@@ -11,9 +11,11 @@ diset connection pg_sslmode prefer
 
 set warehouse [ numberOfWHs ]
 set vu [ numberOfCPUs ]
-set max_build_vu [ expr { max(1, int($warehouse / 10)) } ]
-if { $vu > $max_build_vu } {
-    set vu $max_build_vu
+if { $warehouse > 2000 } {
+    set max_build_vu [ expr { int($warehouse / 10) } ]
+    if { $vu > $max_build_vu } {
+        set vu $max_build_vu
+    }
 }
 diset tpcc pg_count_ware $warehouse
 diset tpcc pg_num_vu $vu
