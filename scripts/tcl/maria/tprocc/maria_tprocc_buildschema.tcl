@@ -11,9 +11,11 @@ diset connection maria_socket /tmp/mariadb.sock
 
 set warehouse [ numberOfWHs ]
 set vu [ numberOfCPUs ]
-set max_build_vu [ expr { max(1, int($warehouse / 10)) } ]
-if { $vu > $max_build_vu } {
-    set vu $max_build_vu
+if { $warehouse > 2000 } {
+    set max_build_vu [ expr { int($warehouse / 10) } ]
+    if { $vu > $max_build_vu } {
+        set vu $max_build_vu
+    }
 }
 diset tpcc maria_count_ware $warehouse
 diset tpcc maria_num_vu $vu
