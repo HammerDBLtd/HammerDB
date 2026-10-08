@@ -147,7 +147,7 @@ if { $result eq "OK" } {
     tk_messageBox -message "Stopping Metrics Agent and Display on $agent_hostname:$agent_id failed to create port"
     } else {
         set displayid [ STOPMetrics self ]
-        if { $agenthostname eq "localhost" || $agenthostname eq [ info hostname ] } {
+        if { $agent_hostname eq "localhost" || $agent_hostname eq [ info hostname ] } {
             set displayhost "127.0.0.1"
         } else {
             set displayhost [ info hostname ]
@@ -188,7 +188,11 @@ proc ConfigureNetworkDisplayCLI {agentid agenthostname} {
         putscli "Creation of Port Failed : $b" 
     } else {
         set displayid [ DisplayMetrics self ]
-        set displayhost [ info hostname ]
+        if { $agenthostname eq "localhost" || $agenthostname eq [ info hostname ] } {
+            set displayhost "127.0.0.1"
+        } else {
+            set displayhost [ info hostname ]
+        }
         putscli "Metric receive port open @ $displayid on $displayhost"
         DisplayMetrics hook lost {
             if { [catch { DisplayMetrics destroy } b] } {
