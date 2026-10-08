@@ -9,8 +9,12 @@ diset connection pg_host localhost
 diset connection pg_port 5432
 diset connection pg_sslmode prefer
 
-set vu [ numberOfCPUs ]
 set warehouse [ numberOfWHs ]
+set vu [ numberOfCPUs ]
+set max_build_vu [ expr { max(1, int($warehouse / 10)) } ]
+if { $vu > $max_build_vu } {
+    set vu $max_build_vu
+}
 diset tpcc pg_count_ware $warehouse
 diset tpcc pg_num_vu $vu
 diset tpcc pg_superuser postgres
