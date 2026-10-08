@@ -406,14 +406,13 @@ proc wapp-page-help {} {
     foreach {title route description example} {
         Jobs jobs {Browse saved jobs, benchmark reports, output, configuration and system information.} {/jobs}
         Pipelines pipelines {Browse pipeline runs and start configured benchmarks using the run form.} {/pipelines}
-        {Pipeline details} ci {Open a Pipeline ID on the Pipelines page to inspect commands, logs and related jobs.} {/ci?ci_id=INTEGER}
         Environment env {Inspect request and runtime diagnostics for this web service.} {/env}
     } {
         wapp-subst {<section class="hdb-info-card"><h2>%html($title)</h2><p>%html($description)</p><p><code>GET %html($example)</code></p>}
         if {$route ne "ci"} {wapp-subst {<a class="hdb-action-link" href="%url($B/$route)">Open %html($title)</a>}}
         wapp-unsafe {</section>}
     }
-    wapp-unsafe {</div><section class="hdb-info-card"><h2>Reading a job</h2><p>Select a Job ID to open its report and sections. Output &amp; Status combines recorded status and virtual-user output. Configuration and System include an original plain-text view.</p></section>}
+    wapp-unsafe {</div>}
     hdb_info_footer
 }
 
