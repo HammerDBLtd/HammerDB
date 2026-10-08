@@ -9,8 +9,12 @@ diset connection mysql_host localhost
 diset connection mysql_port 3306
 diset connection mysql_socket /tmp/mysql.sock
 
-set vu [ numberOfCPUs ]
 set warehouse [ numberOfWHs ]
+set vu [ numberOfCPUs ]
+set max_build_vu [ expr { max(1, int($warehouse / 10)) } ]
+if { $vu > $max_build_vu } {
+    set vu $max_build_vu
+}
 diset tpcc mysql_count_ware $warehouse
 diset tpcc mysql_num_vu $vu
 diset tpcc mysql_user root
