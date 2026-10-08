@@ -1036,6 +1036,8 @@ html .hdb-brand-logo img { display:block; width:55px; height:auto; }
 /* Keep the blue brand mark readable without recolouring the artwork. */
 html[data-theme="dark"] .hdb-brand-logo img { background:#fff; padding:6px; border-radius:6px; box-sizing:content-box; }
 html .hdb-brand-logo img { padding:6px; border-radius:6px; box-sizing:content-box; }
+html .hdb-report-logo { padding:6px; border-radius:6px; box-sizing:content-box; }
+html[data-theme="dark"] .hdb-report-logo { background:#fff; }
 
 @media(max-width:760px) { html body { padding:16px 8px 32px; } html .hdb-page { width:calc(100% - 16px); } html h3 { font-size:20px; } }
 @media print { :root { color-scheme:light; --bg:white; --panel:white; --raised:#eee; --text:black; --muted:#333; --border:#ccc; --accent:#145c37; } .hdb-theme-toolbar { display:none!important; } }
@@ -2094,7 +2096,7 @@ proc wapp-page-hdb-theme.js {} {
       if(!/\/logo(?:-full)?\.png$/.test(new URL(img.src,location.href).pathname))return;
       if(img.closest('.hdb-sidebar'))return;
       const show=report&&!kept;
-      if(show)kept=true;
+      if(show){kept=true;img.classList.add('hdb-report-logo');}
       img.style.setProperty('display',show?'block':'none','important');
       const wrapper=img.parentElement;
       if(wrapper.tagName==='P'&&wrapper.children.length===1&&!wrapper.textContent.trim()){
