@@ -150,11 +150,10 @@ if { $result eq "OK" } {
 	  if { [ interp exists metrics_interp ] } {
 	#A display is already connected so stopping display will close or reinitialize agent
   	putscli "Stopping Metrics Agent and Display on $agent_hostname:$agent_id"
-	#Delay to make sure agent has finished sending
-         after 10000 {
-		 catch {DisplayMetrics destroy}
-		 catch {interp delete metrics_interp}
-	 }
+	#Delay to make sure agent has finished sending before returning
+         after 10000
+	 catch {DisplayMetrics destroy}
+	 catch {interp delete metrics_interp}
   	} else {
 	#A display is not already connected so #set up port to send stop message to agent
     if { [catch {::comm new STOPMetrics -listen 1 -local 0 -silent "TRUE" -port {}} b] } {
