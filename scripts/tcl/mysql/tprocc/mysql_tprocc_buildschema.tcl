@@ -11,9 +11,11 @@ diset connection mysql_socket /tmp/mysql.sock
 
 set warehouse [ numberOfWHs ]
 set vu [ numberOfCPUs ]
-set max_build_vu [ expr { max(1, int($warehouse / 10)) } ]
-if { $vu > $max_build_vu } {
-    set vu $max_build_vu
+if { $warehouse > 2000 } {
+    set max_build_vu [ expr { int($warehouse / 10) } ]
+    if { $vu > $max_build_vu } {
+        set vu $max_build_vu
+    }
 }
 diset tpcc mysql_count_ware $warehouse
 diset tpcc mysql_num_vu $vu
