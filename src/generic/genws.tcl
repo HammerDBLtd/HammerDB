@@ -982,7 +982,7 @@ proc hdb_system_view {system original} {
 proc hdb_output_status {jobid} {
     set status [join [hdbjobs eval {SELECT OUTPUT FROM JOBOUTPUT WHERE JOBID=$jobid AND VU=0}]]
     wapp-unsafe {<div data-hdb-output-view></div>}
-    wapp-subst {<details class="hdb-info-card" open><summary>Final status</summary><pre>%html($status)</pre></details>}
+    wapp-subst {<details class="hdb-info-card" open><summary>Summary Status</summary><pre>%html($status)</pre></details>}
 }
 proc wapp-page-ui-preview {} {
     wapp-allow-xorigin-params
