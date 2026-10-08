@@ -1509,20 +1509,12 @@ proc wapp-page-hdb-theme.js {} {
       cancel.addEventListener('click', () => dialog.close());
       dialog.addEventListener('cancel', e => { if (busy) e.preventDefault(); });
       dialog.addEventListener('close', () => remove.focus());
-      confirm.addEventListener('click', async () => {
+      confirm.addEventListener('click', () => {
         if (busy) return;
         busy = true; confirm.disabled = cancel.disabled = true; confirm.textContent = 'Deleting...';
         error.textContent = '';
         const url = new URL(deletion.href); url.searchParams.delete('delete'); url.searchParams.set('DELETE', '');
-        try {
-          const response = await fetch(url, {cache:'no-store', credentials:'same-origin'});
-          const result = await response.json();
-          if (!response.ok || !result.success || result.error) throw new Error(result.error?.message || 'The server did not confirm deletion.');
-          location.assign(jobsPath);
-        } catch (err) {
-          error.textContent = 'Deletion was not confirmed: ' + err.message + ' Check the Jobs page before trying again.';
-          busy = false; confirm.disabled = cancel.disabled = false; confirm.textContent = 'Delete job';
-        }
+        location.assign(url);
       });
     }
     const sectionTitle = document.createElement('h2'); sectionTitle.className = 'hdb-job-section-title';
