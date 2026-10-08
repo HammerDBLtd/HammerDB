@@ -147,7 +147,11 @@ if { $result eq "OK" } {
     tk_messageBox -message "Stopping Metrics Agent and Display on $agent_hostname:$agent_id failed to create port"
     } else {
         set displayid [ STOPMetrics self ]
-        set displayhost [ info hostname ]
+        if { $agenthostname eq "localhost" || $agenthostname eq [ info hostname ] } {
+            set displayhost "127.0.0.1"
+        } else {
+            set displayhost [ info hostname ]
+        }
         #puts "Metric close port open @ $displayid on $displayhost"
 	if { [catch {::comm send -async "$agent_id $agent_hostname" "catch {Agent STOP \"$displayid $displayhost\"} "} b] } {
      putscli "Stopping Metrics Agent and Display on $agent_hostname:$agent_id failed to send message $b"
