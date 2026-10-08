@@ -2855,11 +2855,10 @@ if {$rawmode} {
         return
     }
     if {[dict exists $paramdict DELETE]} {
-        set date [join [hdbjobs eval {SELECT timestamp FROM JOBMAIN WHERE JOBID=$jobid}]]
-        set current_time [clock format [clock seconds] -format "%y-%m-%d %H:%M:%S"]
-        set job_age_hrs [expr {([clock scan $current_time] - [clock scan $date]) / 3600}]
-        set jobstatus [hdbjobs eval {SELECT OUTPUT FROM JOBOUTPUT WHERE JOBID=$jobid AND VU=0}]
-        if {[string match "*ALL VIRTUAL USERS COMPLETE*" $jobstatus] || $job_age_hrs > 24} {
+        set jobstatus [jobs_summary_status $jobid [dict create]]
+        common-header
+        wapp-trim {<div class='hammerdb' data-title='Job Delete'>}
+        if {$jobstatus ne "RUNNING"} {
             hdbjobs eval {DELETE FROM JOBMAIN   WHERE JOBID=$jobid}
             hdbjobs eval {DELETE FROM JOBTIMING WHERE JOBID=$jobid}
             hdbjobs eval {DELETE FROM JOBTCOUNT WHERE JOBID=$jobid}
@@ -2867,14 +2866,14 @@ if {$rawmode} {
             hdbjobs eval {DELETE FROM JOBSYSTEM WHERE JOBID=$jobid}
             hdbjobs eval {DELETE FROM JOBOUTPUT WHERE JOBID=$jobid}
             hdbjobs eval {DELETE FROM JOBCHART  WHERE JOBID=$jobid}
-            dict set jsondict success message "Deleted Jobid $jobid"
             global discardedjobs
             unset -nocomplain discardedjobs
-            wapp-2-json 2 $jsondict
+            wapp-subst "<section class='hdb-info-card'><h2>Job deleted</h2><p>Deleted Jobid %html($jobid).</p><p><a class='hdb-action-link' href='%html($B/jobs)'>Back to Jobs</a></p></section>\n"
         } else {
-            dict set jsondict error message "Cannot delete Jobid $jobid from $date did not complete and ran less than 24 hours ago"
-            wapp-2-json 2 $jsondict
+            set back "$B/jobs?jobid=$jobid&index"
+            wapp-subst "<section class='hdb-info-card'><h2>Job still running</h2><p>Jobid %html($jobid) is still running and cannot be deleted.</p><p><a class='hdb-action-link' href='%html($back)'>Back to Job</a></p></section>\n"
         }
+        common-footer
         return
     }
 
