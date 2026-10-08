@@ -470,7 +470,7 @@ set connectestablished 1
 }
 Agent hook lost {
 global agentlist S connectestablished restart
-set todel [ lsearch -index 0 -exact $agentlist $id ]
+set todel [ lsearch -exact $agentlist $id ]
 if { $todel != -1 } {
 puts "Connection to display $id lost: $reason"
 unset -nocomplain connectestablished
