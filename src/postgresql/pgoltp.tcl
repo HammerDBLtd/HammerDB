@@ -2286,8 +2286,12 @@ proc do_tpcc { host port sslmode count_ware superuser superuser_password default
         }
     
         } on error {message options} {
+            puts "Schema loader worker $myposition original error: $message"
             if { $threaded eq "MULTI-THREADED" } {
-                loader_set_state $myposition error
+                catch {loader_set_state $myposition error} state_message
+                if {$state_message ne ""} {
+                    puts "Schema loader worker $myposition state update: $state_message"
+                }
             }
             return -options $options $message
         }
