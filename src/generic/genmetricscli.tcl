@@ -108,7 +108,17 @@ proc metstart {} {
                         set ::metrics_start_ready -1
                     }
                 }]
-                vwait ::metrics_start_ready
+                set stdin_handler [fileevent stdin readable]
+                if {$stdin_handler ne ""} {
+                    fileevent stdin readable {}
+                }
+                try {
+                    vwait ::metrics_start_ready
+                } finally {
+                    if {$stdin_handler ne ""} {
+                        fileevent stdin readable $stdin_handler
+                    }
+                }
                 after cancel $metrics_start_timeout
                 if {$::metrics_start_ready < 0} {
                     putscli "CPU metrics failed to start on [ info hostname ]"
