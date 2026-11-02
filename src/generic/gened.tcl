@@ -1,5 +1,14 @@
 proc ttk::toplevel {w args} {
     eval [linsert $args 0 ::toplevel $w]
+    # Outer dialog margins add breathing room without reparenting controls or
+    # changing pack/grid ordering. The main window keeps its existing panes.
+    if {$w ne ".ed_mainFrame"} {
+        foreach option {-padx -pady} {
+            if {[lsearch -exact $args $option] < 0} {
+                $w configure $option [hdbspace 10]
+            }
+        }
+    }
     place [ttk::frame $w.tilebg] -x 0 -y 0 -relwidth 1 -relheight 1
     set w
 }
@@ -33,7 +42,7 @@ proc ed_start_gui { dbdict icons iconalt } {
     pack [ ttk::sizegrip $Name.grip ] -side right -anchor se
 
     set Name $Parent.menuframe
-    ttk::frame $Name 
+    ttk::frame $Name -style HDBMenubar.TFrame
     pack $Name -anchor nw -expand 0 -fill x -ipadx 0 -ipady 0 \
          -padx 0 -pady 2 -side top
 
@@ -156,28 +165,28 @@ proc ed_start_gui { dbdict icons iconalt } {
 
 
     set Name $Parent.statusbar.l17
-    ttk::label $Name -text "0.0"
+    ttk::label $Name -style HDBStatus.TLabel -text "0.0"
     pack $Name -anchor nw -side right -expand 0  -fill x
 
     set Name $Parent.statusbar.l16
-    ttk::label $Name -text "   Row.Col: "
+    ttk::label $Name -style HDBStatus.TLabel -text "   Row.Col: "
     pack $Name -anchor nw -side right -expand 0  -fill x
 
     set Name $Parent.statusbar.l15
-    ttk::label $Name -text "  Mode: $opmode"
+    ttk::label $Name -style HDBStatus.TLabel -text "  Mode: $opmode"
     pack $Name -anchor nw -side right -expand 0  -fill x
 
     set Name $Parent.statusbar.l14
-    ttk::label $Name -text "  File: $_ED(packagekeyname)"
+    ttk::label $Name -style HDBStatus.TLabel -text "  File: $_ED(packagekeyname)"
     pack $Name -anchor nw -side right -expand 0  -fill x
 
     set Name $Parent.buttons
-    ttk::frame $Name
+    ttk::frame $Name -style HDBToolbar.TFrame
     pack $Name -anchor nw -side top -expand 0 -fill x -ipadx 0 -ipady 0  \
          -padx 0 -pady 0
 
     set Name $Parent.editbuttons
-    ttk::frame $Name
+    ttk::frame $Name -style HDBToolbar.TFrame
 
     construct_button $Parent.editbuttons.console edit ctext console.gif "convert_to_oratcl" "Convert Trace to Oratcl" 
     construct_button $Parent.editbuttons.distribute edit distribute distribute.ppm "distribute" "Primary Distribution" 
@@ -221,9 +230,9 @@ proc ed_start_gui { dbdict icons iconalt } {
 
     set Name $Parent.panedwin
         if { $::ttk::currentTheme eq "awbreeze" } {
-        panedwindow $Name -orient horizontal -background [ dict get $icons defaultBackground ] -relief flat 
+        panedwindow $Name -orient horizontal -background [ dict get $icons defaultBackground ] -relief flat -borderwidth 0 -sashrelief flat -sashwidth [hdbspace 5]
         } elseif { $::ttk::currentTheme eq "awbreezedark" } {
-        panedwindow $Name -orient horizontal -background  [ dict get $icons defaultBackground ] -relief flat
+        panedwindow $Name -orient horizontal -background  [ dict get $icons defaultBackground ] -relief flat -borderwidth 0 -sashrelief flat -sashwidth [hdbspace 5]
         } else {
         panedwindow $Name -orient horizontal -showhandle false
         }
@@ -231,9 +240,9 @@ proc ed_start_gui { dbdict icons iconalt } {
 
     set Name $Parent.panedwin.subpanedwin
         if { $::ttk::currentTheme eq "awbreeze" } {
-        panedwindow $Name -orient vertical -background [ dict get $icons defaultBackground ]
+        panedwindow $Name -orient vertical -background [ dict get $icons defaultBackground ] -borderwidth 0 -sashrelief flat -sashwidth [hdbspace 5]
         } elseif { $::ttk::currentTheme eq "awbreezedark" } {
-        panedwindow $Name -orient vertical -background [ dict get $icons defaultBackground ]
+        panedwindow $Name -orient vertical -background [ dict get $icons defaultBackground ] -borderwidth 0 -sashrelief flat -sashwidth [hdbspace 5]
         } else {
         panedwindow $Name -orient vertical -showhandle false
         }
@@ -250,7 +259,7 @@ proc ed_start_gui { dbdict icons iconalt } {
     ttk::treeview $Name -yscrollcommand "$Parent.treeframe.vbar set" -selectmode browse -show [ list tree headings ]
     $Name column #0 -stretch 1 -minwidth 1 -width $treewidth
     $Name heading #0 -text "Benchmark"
-    $Name configure -padding {0 0 0 0}
+    $Name configure -padding [hdbspace {4 4 4 4}]
     pack $Name -side left -anchor w -expand 1 -fill both 
     #Extract list of databases passed from configuration file
     dict for {database attributes} $dbdict {
@@ -591,11 +600,7 @@ proc construct_menu {Name label cmd_list} {
     upvar #0 icons icons
     global _ED
 
-    if {[string match "*dark*" $::ttk::currentTheme]} {
-        set menustyle HDBMenu.Toolbutton
-    } else {
-        set menustyle Toolbutton
-    }
+    set menustyle HDBMenu.Toolbutton
     ttk::menubutton $Name -text $label -underline 0 -width [ string length $label ] -direction below -style $menustyle -takefocus 0
     incr _ED(menuCount);
     set newmenu $Name.m$_ED(menuCount)
@@ -783,7 +788,12 @@ proc construct_button_svg {Name button_type iconname file cmd helpmsg} {
     upvar #0 iconaltsvg iconaltsvg
     set buttonscale [ expr {round(16 / 1.333333 * $win_scale_fact)} ]
     set im [image create photo -data [ dict get $iconssvg $iconname ] -format "svg -scaletoheight $buttonscale"]
-    button $Name -image $im -command "$cmd" -highlightthickness 0 -borderwidth 0 -width [ expr {round($buttonscale * 2)} ] -background [ dict get $iconssvg defaultBackground ] -activebackground [ dict get $iconssvg defaultBackground ]
+    button $Name -image $im -command "$cmd" -relief flat -overrelief flat \
+        -highlightthickness 1 -highlightbackground [hdbcolor background] \
+        -highlightcolor [hdbcolor focus] -borderwidth 0 \
+        -padx [hdbspace 2] -pady [hdbspace 3] \
+        -width [ expr {round($buttonscale * 2)} ] \
+        -background [ dict get $iconssvg defaultBackground ] -activebackground [hdbcolor hover]
     tooltip::tooltip $Name $helpmsg
     set padding [ expr {round($buttonscale / 4)} ]
     if { $button_type eq "bar" } {
@@ -792,10 +802,10 @@ proc construct_button_svg {Name button_type iconname file cmd helpmsg} {
         pack $Name -anchor sw -side bottom -expand 0  -fill y -pady "$padding $padding" -padx "$padding $padding"
     }
     bind $Name <Enter> [
-    list $Name config -image [image create photo -data [ dict get $iconaltsvg $iconname ] -format "svg -scaletoheight $buttonscale"] -command "$cmd"
+    list $Name config -background [hdbcolor hover] -image [image create photo -data [ dict get $iconaltsvg $iconname ] -format "svg -scaletoheight $buttonscale"] -command "$cmd"
     ]
     bind $Name <Leave> [
-    list $Name config -image [image create photo -data [ dict get $iconssvg $iconname ] -format "svg -scaletoheight $buttonscale"] -command "$cmd"
+    list $Name config -background [hdbcolor background] -image [image create photo -data [ dict get $iconssvg $iconname ] -format "svg -scaletoheight $buttonscale"] -command "$cmd"
     ]
 }
 
@@ -957,7 +967,7 @@ proc ed_loadsave {loadflag} {
     pack $Name -side right -anchor nw
 
     set Name $Parent.list
-    ttk::frame $Name -borderwidth 2 -height 50 -width 50
+    ttk::frame $Name -borderwidth 0 -height 50 -width 50
     pack $Name -side top -anchor nw -expand yes -fill both
 
     set Name $Parent.list.lb1
@@ -1434,12 +1444,13 @@ proc ed_edit {} {
          -highlight 1 \
          -highlightthickness 1 -highlightbackground $ctexthighlightbackground -insertbackground $ctextinsertbackground \
          -selectbackground $hbgrd -selectforeground $ctextselectforeground \
-         -wrap none \
-         -font basic \
+         -wrap none -padx [hdbspace 8] -pady [hdbspace 6] \
+         -spacing1 [hdbspace 1] -spacing3 [hdbspace 1] \
+         -font HDBCodeFont \
          -xscrollcommand "$Parent.textFrame.right.vertScrollbar set" \
          -yscrollcommand "$Parent.textFrame.left.horizScrollbar set" \
          -linemap 1 \
-         -linemapbg $defaultBackground \
+         -linemapbg $defaultBackground -linemapfg [hdbcolor muted] \
          -linemap_markable 0
         setctexthighlight $Name
         easyCtextCommenting $Name
@@ -1448,13 +1459,17 @@ proc ed_edit {} {
          -highlight 0 \
          -highlightthickness 1 -highlightbackground $ctexthighlightbackground -insertbackground $ctextinsertbackground \
          -selectbackground $hbgrd -selectforeground $ctextselectforeground \
-         -wrap none \
-         -font basic \
+         -wrap none -padx [hdbspace 8] -pady [hdbspace 6] \
+         -spacing1 [hdbspace 1] -spacing3 [hdbspace 1] \
+         -font HDBCodeFont \
          -xscrollcommand "$Parent.textFrame.right.vertScrollbar set" \
          -yscrollcommand "$Parent.textFrame.left.horizScrollbar set" \
          -linemap 0 \
          -linemap_markable 0
     }
+    # The ctext gutter is a separate Text widget; match its line spacing so
+    # line numbers remain aligned during editing and smooth scrolling.
+    $Name.l configure -pady [hdbspace 6] -spacing1 [hdbspace 1] -spacing3 [hdbspace 1]
     $Name fastinsert end { }
     pack $Name -anchor center -expand 1 -fill both -ipadx 0 -ipady 0 \
          -padx 0 -pady 0 -side top
@@ -2222,7 +2237,7 @@ proc combobox {window {listproc {}} {cmdproc {}} {cb_textvar c_var} {cb_width 15
                 static unsigned char dwnarrow.icn_bits[] = {
                 0x00, 0x00, 0x00, 0x00, 0xe0, 0x07, 0xe0, 0x07, 0xe0, 0x07, 0xe0, 0x07,0xe0, 0x07, 0xfc, 0x3f, 0xf8, 0x1f, 0xf0, 0x0f, 0xe0, 0x07, 0xc0, 0x03,0x80, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
             }
-            image create bitmap down_bm -data [set down_bm]
+            image create bitmap down_bm -data [set down_bm] -foreground [hdbcolor foreground]
             unset down_bm
         }
 
@@ -2231,7 +2246,7 @@ proc combobox {window {listproc {}} {cmdproc {}} {cb_textvar c_var} {cb_width 15
         bind ${window}.b <1> "combobox_drop ${window} [list $listproc];%W config -relief sunken"
         bind ${window}.b <ButtonRelease-1> "%W config -relief raised"
 
-        ttk::toplevel ${window}_f
+        ttk::toplevel ${window}_f -padx 0 -pady 0
 
 
         wm overrideredirect ${window}_f 1

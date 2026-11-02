@@ -176,15 +176,15 @@ proc DoDisplay {maxcpu cpu_model caller} {
             set x0 [ expr {$x0 - $rowdeduction} ]
             set x1 [expr {$x0 + $S(bar,width)}]
         }
-	#colour gradients for usr and sys
-	set usr [$canvforbars gradient create linear -stops {{0 lightgreen} {1 green}}]
-	set sys [$canvforbars gradient create linear -stops {{0 indianred} {1 darkred}}]
+	#Flat fills keep the existing utilisation bars legible in both themes.
+	set usr $CLR(usr)
+	set sys $CLR(sys)
         #hold array of coords for each CPU for later update
         set cpucoords($cpu) [ list $x0 $y0 $x1 $y1 ]
-        $canvforbars create prect $x0 $y1 $x1 $y1 -tag bar$cpu-sys -fill $sys
-        $canvforbars create prect $x0 $y1 $x1 $y1 -tag bar$cpu-usr -fill $usr
+        $canvforbars create prect $x0 $y1 $x1 $y1 -tag bar$cpu-sys -fill $sys -stroke {}
+        $canvforbars create prect $x0 $y1 $x1 $y1 -tag bar$cpu-usr -fill $usr -stroke {}
         for { set ymask $y0 } { $ymask <= $y1 } { incr ymask $S(mask) } {
-           $canvforbars create prect $x0 $ymask $x1 [ expr $ymask + $S(maskplus) ] -tag bar$cpu-mask -fill $CLR(bg)
+           $canvforbars create prect $x0 $ymask $x1 [ expr $ymask + $S(maskplus) ] -tag bar$cpu-mask -fill $CLR(bg) -stroke {}
         }
         #Set CPU utilisation % value and hide with same as background colour
         $canvforbars create text  [ expr $x0 + $S(txtalign) ]  [ expr $y1 + $S(txtalign) ] -text "0%" -fill $CLR(bg) -font [ list basic [ expr [ font actual basic -size ] - 3 ] ]  -tags "pcent$cpu"

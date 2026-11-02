@@ -26,67 +26,109 @@ proc hdbcolor {name {theme ""}} {
     return [hdblightcolor $name]
 }
 
+# Scale presentation dimensions from 96-DPI logical pixels. Fonts remain in
+# points and use Tk's native platform families.
+proc hdbspace {values} {
+    set scaled {}
+    foreach value $values {
+        lappend scaled [expr {round($value * [tk scaling] / (96.0 / 72.0))}]
+    }
+    return $scaled
+}
+
+proc hdbfonts {} {
+    # Re-resolve point sizes after the configured tk scaling is applied.
+    # Retain native families/sizes instead of shrinking Linux fonts.
+    foreach name [font names] {
+        font configure $name -size [font actual $name -size]
+    }
+    foreach {name source weight} {
+        basic TkDefaultFont normal
+        HDBHeadingFont TkDefaultFont bold
+        HDBCodeFont TkFixedFont normal
+    } {
+        if {$name ni [font names]} {font create $name}
+        font configure $name {*}[font actual $source] -weight $weight
+    }
+}
+
 proc tilestyle { defaultBackground icons theme } {
     set fieldbackground [hdbcolor field $theme]
     set foreground [hdbcolor foreground $theme]
-    set selectedbackground [list selected [hdbcolor selection $theme]]
-    #Set Tile styles common to both fixed and scaling
-    #With Tcl/Tk 9 TkDefaultFont shows as 1 size larger than Tcl/Tk 8 only on Linux, reduce it
-    if {!($::tcl_platform(platform) == "windows")} {
-    font configure TkDefaultFont -size [ expr [font actual TkDefaultFont -size] - 1 ]
-    	}
-    ttk::style configure TFrame -background $defaultBackground
-    ttk::style configure Heading -font TkDefaultFont
-    ttk::style configure Treeview -background $fieldbackground
-    ttk::style configure Treeview -fieldbackground $fieldbackground
-    ttk::style map Treeview -background $selectedbackground
-    ttk::style map Treeview -foreground [ list selected "#FF7900"]
-    ttk::style layout Treeview { Treeview.field -border 0 }
-    ttk::style layout Treeview { Treeview.treearea -border 0 }
-    ttk::style layout Treeview { Treeview.padding -border 0 }
-    ttk::style configure TProgressbar -troughcolor [ dict get $icons defaultBackground ]
-    ttk::style configure TProgressbar -lightcolor "#FF7900"
-    ttk::style configure TProgressbar -darkcolor "#FF7900"
-    ttk::style configure TProgressbar -bordercolor "#FF7900"
-    ttk::style configure TSpinbox -selectbackground [ dict get $icons defaultBackground ]
-    ttk::style configure TSpinbox -fieldbackground $fieldbackground
-    ttk::style configure TSpinbox -background [ dict get $icons defaultBackground ]
-    ttk::style configure TSpinbox -foreground $foreground
-    ttk::style configure TSpinbox -selectforeground "#FF7900"
-    ttk::style configure TEntry -selectbackground [ dict get $icons defaultBackground ]
-    ttk::style configure TEntry -fieldbackground $fieldbackground
-    ttk::style configure TEntry -background [ dict get $icons defaultBackground ]
-    ttk::style configure TEntry -foreground $foreground
-    ttk::style configure TEntry -selectforeground "#FF7900"
-    ttk::style configure TEntry -borderwidth 0
-    ttk::style configure TPanedwindow -background $defaultBackground
-    ttk::style configure TButton -relief flat
+    set panel [hdbcolor panel $theme]
+    set border [hdbcolor border $theme]
+    set focus [hdbcolor focus $theme]
+    set selection [hdbcolor selection $theme]
+    set muted [hdbcolor muted $theme]
+    set disabled [hdbcolor disabled $theme]
 
-    ttk::style configure Treeview -foreground $foreground -borderwidth 0
-    ttk::style map Treeview -foreground [list selected $foreground]
-    ttk::style configure Treeview.Heading -background [hdbcolor panel] \
-        -foreground [hdbcolor muted] -padding {8 6}
+    ttk::style configure . -font TkDefaultFont
+    ttk::style configure TFrame -background $defaultBackground -borderwidth 0 -relief flat
+    ttk::style configure TLabel -padding [hdbspace {2 2}]
+    ttk::style configure TButton -font TkDefaultFont -relief flat -anchor center
+    ttk::style configure TLabelframe -padding [hdbspace {8 6}] -relief flat
+    ttk::style configure TLabelframe.Label -font HDBHeadingFont -foreground $muted
+    ttk::style configure TNotebook -borderwidth 0 -tabmargins [hdbspace {2 4 2 0}]
+    ttk::style configure TNotebook.Tab -padding [hdbspace {10 6}] -font TkDefaultFont
+    ttk::style configure TPanedwindow -background $defaultBackground
+    ttk::style configure HDBToolbar.TFrame -padding [hdbspace {2 2}]
+    ttk::style configure HDBMenubar.TFrame -padding [hdbspace {2 1}]
+    ttk::style configure HDBStatus.TLabel -foreground $muted -padding [hdbspace {2 3}]
+    ttk::style configure Heading -font HDBHeadingFont
+    ttk::style configure Treeview -background $fieldbackground \
+        -fieldbackground $fieldbackground -foreground $foreground -borderwidth 0
+    ttk::style map Treeview -background [list selected $selection] \
+        -foreground [list disabled $disabled selected $foreground]
+    ttk::style configure Treeview.Heading -background $panel -foreground $muted \
+        -font HDBHeadingFont -padding [hdbspace {8 6}]
+    ttk::style configure TProgressbar -troughcolor $panel -background [hdbcolor brand] \
+        -lightcolor [hdbcolor brand] -darkcolor [hdbcolor brand] -borderwidth 0
     foreach style {TEntry TSpinbox TCombobox} {
-        ttk::style configure $style -fieldbackground $fieldbackground \
-            -foreground $foreground -selectbackground [hdbcolor selection] \
+        ttk::style configure $style -font TkTextFont -fieldbackground $fieldbackground \
+            -foreground $foreground -selectbackground $selection \
             -selectforeground $foreground -insertcolor $foreground
-        ttk::style map $style -foreground \
-            [list disabled [hdbcolor disabled] readonly $foreground] \
-            -fieldbackground [list disabled [hdbcolor panel] readonly $fieldbackground]
+        ttk::style map $style -foreground [list disabled $disabled readonly $foreground] \
+            -fieldbackground [list disabled $panel readonly $fieldbackground]
     }
-    ttk::style configure TNotebook.Tab -padding {12 7}
-    ttk::style configure TLabelframe.Label -foreground [hdbcolor muted]
-    # Classic Tk widgets are used by dialogs and the output panes too.
-    foreach widget {Text Listbox} {
+
+    # Option defaults cover classic widgets without replacing their classes,
+    # bindings, validation commands, or explicit application settings.
+    foreach widget {Toplevel Frame Label Button Checkbutton Radiobutton} {
+        option add *${widget}.background $defaultBackground widgetDefault
+        option add *${widget}.foreground $foreground widgetDefault
+        option add *${widget}.font TkDefaultFont widgetDefault
+        option add *${widget}.highlightBackground $border widgetDefault
+        option add *${widget}.highlightColor $focus widgetDefault
+    }
+    foreach widget {Button Checkbutton Radiobutton} {
+        option add *${widget}.activeBackground $selection widgetDefault
+        option add *${widget}.activeForeground $foreground widgetDefault
+        option add *${widget}.disabledForeground $disabled widgetDefault
+        option add *${widget}.relief flat widgetDefault
+        option add *${widget}.borderWidth 0 widgetDefault
+    }
+    option add *Button.background $panel widgetDefault
+    option add *Button.highlightThickness 1 widgetDefault
+    option add *Button.padX [hdbspace 10] widgetDefault
+    option add *Button.padY [hdbspace 5] widgetDefault
+    foreach widget {Text Listbox Entry Spinbox} {
         option add *${widget}.background $fieldbackground widgetDefault
         option add *${widget}.foreground $foreground widgetDefault
-        option add *${widget}.selectBackground [hdbcolor selection] widgetDefault
+        option add *${widget}.selectBackground $selection widgetDefault
         option add *${widget}.selectForeground $foreground widgetDefault
-        option add *${widget}.highlightBackground [hdbcolor border] widgetDefault
-        option add *${widget}.highlightColor [hdbcolor focus] widgetDefault
+        option add *${widget}.highlightBackground $border widgetDefault
+        option add *${widget}.highlightColor $focus widgetDefault
+        option add *${widget}.selectBorderWidth 0 widgetDefault
+        option add *${widget}.relief flat widgetDefault
+        option add *${widget}.borderWidth 0 widgetDefault
     }
     option add *Text.insertBackground $foreground widgetDefault
-    option add *Text.inactiveSelectBackground [hdbcolor selection] widgetDefault
+    option add *Text.inactiveSelectBackground $selection widgetDefault
+    option add *Text.font HDBCodeFont widgetDefault
+    option add *Listbox.font TkTextFont widgetDefault
+    option add *Menu.font TkMenuFont widgetDefault
+    option add *h1.font HDBHeadingFont widgetDefault
+    option add *h2.font HDBHeadingFont widgetDefault
     foreach {key colour} {
         bg field cursor foreground stdin foreground stdout focus
         stderr error prompt muted proc success var warning disabled disabled
@@ -94,46 +136,40 @@ proc tilestyle { defaultBackground icons theme } {
         set ::tkcon::COLOR($key) [hdbcolor $colour]
     }
 
-    # The light awbreeze Toolbutton already gives the required flat menu bar
-    # with an orange hover outline.  awbreezedark uses a blue image-backed
-    # hover graphic, so give the dark menu bar a matching image-backed border.
-    if {[string match "*dark*" $theme]} {
-        catch {image delete ::img::hdbmenu-normal}
-        catch {image delete ::img::hdbmenu-hover}
-        catch {image delete ::img::hdbmenu-pressed}
+    # tooltip documents labelOpts as its presentation override, set before
+    # the first registration. Keep its timing and bindings unchanged.
+    set ::tooltip::labelOpts [list -font TkDefaultFont -background $panel \
+        -foreground $foreground -relief flat -borderwidth 0 \
+        -highlightthickness 1 -highlightbackground $border \
+        -padx [hdbspace 8] -pady [hdbspace 5]]
 
-        set hdbmenu_normal_svg "<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12'><rect x='0.5' y='0.5' width='11' height='11' fill='$defaultBackground' stroke='$defaultBackground' stroke-width='1'/></svg>"
-        set hdbmenu_hover_svg "<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12'><rect x='0.5' y='0.5' width='11' height='11' fill='$defaultBackground' stroke='#FF7900' stroke-width='1'/></svg>"
-        set hdbmenu_pressed_svg "<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12'><rect x='0.5' y='0.5' width='11' height='11' fill='#FF7900' stroke='#FF7900' stroke-width='1'/></svg>"
-
-        image create photo ::img::hdbmenu-normal -data $hdbmenu_normal_svg -format svg
-        image create photo ::img::hdbmenu-hover -data $hdbmenu_hover_svg -format svg
-        image create photo ::img::hdbmenu-pressed -data $hdbmenu_pressed_svg -format svg
-
-        catch {
-            ttk::style element create HDBMenuDark.border image [list \
-                ::img::hdbmenu-normal \
-                {pressed !disabled} ::img::hdbmenu-pressed \
-                {hover !disabled} ::img::hdbmenu-hover \
-                {active !disabled} ::img::hdbmenu-hover] \
-                -border 2 -sticky nswe
-        }
-
-        ttk::style layout HDBMenu.Toolbutton {
-            HDBMenuDark.border -sticky nswe -children {
-                Button.padding -sticky nswe -children {
-                    Button.label -sticky nswe
-                }
+    # Keep the existing menu widget and traversal. Use the same restrained
+    # orange outline in both themes, including keyboard focus.
+    foreach {state fill stroke} [list normal $defaultBackground $defaultBackground \
+            hover $panel [hdbcolor brand] pressed $selection [hdbcolor brand]] {
+        set name ::img::hdbmenu-$state
+        if {$name in [image names]} {image delete $name}
+        image create photo $name -format svg -data \
+            "<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12'><rect x='0.5' y='0.5' width='11' height='11' rx='2' fill='$fill' stroke='$stroke' stroke-width='1'/></svg>"
+    }
+    if {"HDBMenu.border" ni [ttk::style element names]} {
+        ttk::style element create HDBMenu.border image [list \
+            ::img::hdbmenu-normal \
+            {pressed !disabled} ::img::hdbmenu-pressed \
+            {active !disabled} ::img::hdbmenu-hover \
+            {focus !disabled} ::img::hdbmenu-hover] -border 3 -sticky nswe
+    }
+    ttk::style layout HDBMenu.Toolbutton {
+        HDBMenu.border -sticky nswe -children {
+            Button.padding -sticky nswe -children {
+                Button.label -sticky nswe
             }
         }
-        ttk::style configure HDBMenu.Toolbutton \
-            -foreground $foreground \
-            -background $defaultBackground \
-            -padding {4 1}
-        ttk::style map HDBMenu.Toolbutton \
-            -foreground [list {pressed !disabled} black]
     }
-    }
+    ttk::style configure HDBMenu.Toolbutton -font TkMenuFont -foreground $foreground \
+        -background $defaultBackground -padding [hdbspace {6 4}]
+    ttk::style map HDBMenu.Toolbutton -foreground [list disabled $disabled]
+}
 
 proc framesizes { win_scale_fact } {
     global tabix tabiy mainx mainy mainminx mainminy mainmaxx mainmaxy
@@ -173,7 +209,22 @@ proc initscaletheme {theme pixelsperpoint} {
         scrollbar.color.active [hdbcolor muted $theme] \
         scrollbar.color [hdbcolor border $theme] \
         scrollbar.color.pressed [hdbcolor focus $theme] \
-        scrollbar.trough [hdbcolor background $theme]
+        scrollbar.trough [hdbcolor background $theme] \
+        button.active [hdbcolor hover $theme] \
+        button.active.focus [hdbcolor hover $theme] \
+        border.button.active [hdbcolor brand $theme] \
+        button.padding {10 4} button.image.padding {4 3} \
+        entry.padding {3 0} entry.image.padding {6 4} \
+        combobox.padding {3 0} combobox.entry.image.padding {6 4} \
+        spinbox.image.padding {4 4} \
+        checkbutton.padding {4 3 2 3} radiobutton.padding {4 3 2 3} \
+        checkbutton.focusthickness 1 radiobutton.focusthickness 1 \
+        menu.relief flat \
+        tab.selected [hdbcolor field $theme] tab.active [hdbcolor panel $theme] \
+        tab.inactive [hdbcolor background $theme] \
+        tab.color.selected [hdbcolor brand $theme] \
+        tab.color.hover [hdbcolor brand $theme] \
+        tree.arrow.selected [hdbcolor foreground $theme]
     ::themeutils::setThemeColors $theme \
         style.progressbar rounded-line \
         style.scale circle-rev \
@@ -190,23 +241,7 @@ proc initscaletheme {theme pixelsperpoint} {
         set win_scale_fact $pixelsperpoint	
         tk scaling $win_scale_fact
     }
-    foreach font [ font names ] {
-        font configure $font -size [font actual $font -size ]
-    }
-    #Create "basic" font used for the editor
-    if {$tcl_platform(platform) == "windows"} {
-        if {{Segoe UI} in [ font families ] } {
-            font create basic -family {Segoe UI}
-        } else {
-            font create basic -family {TkDefaultFont}
-        }
-    } else {
-        if {{Liberation Sans} in [ font families ] } {
-            font create basic -family {Liberation Sans}
-        } else {
-            font create basic -family {TkDefaultFont}
-        }
-    }
+    hdbfonts
     package require $theme
     ttk::setTheme $theme
     configmessagebox $theme
@@ -232,17 +267,9 @@ proc initscaletheme {theme pixelsperpoint} {
     dict set iconssvg defaultForeground $defaultForeground
     #Set Tile styles
     tilestyle $defaultBackground $icons $theme
-    if { [ winfo pixels . 1i ] eq 96 } {
-        font configure basic -size 10
-	#For Tcl/Tk 9.0 default linespace is too small, add additional space
-        ttk::style configure Treeview -rowheight [expr {[font metrics basic -linespace] + 4}]
-        set treewidth 161
-    } else {
-	    puts [ font configure TkDefaultFont -size ]
-        font configure basic -size [ font configure TkDefaultFont -size ]
-        ttk::style configure Treeview -rowheight [expr {[font metrics basic -linespace] + 8}]
-        set treewidth [ expr {round(1.677 * [ winfo pixels . 1i ])}]
-    }
+    ttk::style configure Treeview -rowheight \
+        [expr {[font metrics TkDefaultFont -linespace] + [hdbspace 6]}]
+    set treewidth [expr {round(1.677 * [winfo pixels . 1i])}]
     framesizes $win_scale_fact
 }
 
@@ -380,14 +407,14 @@ proc configmessagebox { theme } {
         variable ::ttk::dialog_module::window_icon
         variable ::ttk::dialog_module::window_name
         variable ::ttk::dialog_module::italic_font
-        set vertical_padding {0i 0.20i}
-        set horizontal_padding 4
+        set vertical_padding [hdbspace {12 0}]
+        set horizontal_padding [hdbspace 4]
 
         ttk::toplevel $window_name 
         wm transient $window_name .ed_mainFrame
         wm title $window_name $window_title
 
-        ttk::frame $window_name.top_frame -padding 3
+        ttk::frame $window_name.top_frame -padding [hdbspace {4 4}]
         #upvar #0 icons icons
         switch $window_icon_type {
             error {
@@ -447,9 +474,9 @@ proc configmessagebox { theme } {
 	-text [mc "Cancel"] -width 10 -command  {::ttk::unix_messageBox_quit "cancel"}
 
         grid $window_name.top_frame -row 0 -column 0 -sticky news 
-        grid $window_name.top_frame.icon_label -row 0 -column 0 
-        grid $window_name.top_frame.message_label -row 0 -column 1
-        grid $window_name.top_frame.details_label -row 1 -column 1 -sticky w
+        grid $window_name.top_frame.icon_label -row 0 -column 0 -padx [hdbspace {0 10}] -sticky n
+        grid $window_name.top_frame.message_label -row 0 -column 1 -sticky w
+        grid $window_name.top_frame.details_label -row 1 -column 1 -sticky w -pady [hdbspace {4 0}]
         grid $window_name.top_frame.button_frame -row 2 -column 0 -columnspan 2
 
         switch $grid_type {

@@ -862,7 +862,8 @@ proc transcount { } {
     set scale_width [ expr {(535 / 1.333333) * $win_scale_fact} ]
 set tcc_height [ expr {(60 / 1.333333) * $win_scale_fact} ]
 set tcg_height [ expr {(250 / 1.333333) * $win_scale_fact} ]
-set emug_height [ expr {(150 / 1.333333) * $win_scale_fact} ]
+# Reserve a text line for native-font axis captions inside the existing pane.
+set emug_height [ expr {(150 / 1.333333) * $win_scale_fact - [font metrics TkDefaultFont -linespace]} ]
 set axistextoffset [ expr {(20 / 1.333333) * $win_scale_fact * 0.50} ]
 set ticklen [ expr {(10 / 1.333333) * $win_scale_fact * 0.60} ]
 set xref [ expr {(75 / 1.333333) * $win_scale_fact * 0.90} ]

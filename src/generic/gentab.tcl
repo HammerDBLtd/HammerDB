@@ -74,7 +74,7 @@ proc tablist w {
 	-background white \
 	-borderwidth 0 \
 	-labelrelief flat \
-	-font basic
+	-font basic -labelfont HDBHeadingFont -labelpady [hdbspace 4]
     ttk::scrollbar $vsb -orient vertical -command [list $tbl yview]
     grid $tbl -row 0 -column 0 -sticky news
     grid $vsb -row 0 -column 1 -sticky ns
@@ -87,7 +87,7 @@ proc tablist w {
     $tbl configure -selectbackground [hdbcolor selection]
     $tbl configure -selectforeground [hdbcolor foreground]
     $tbl configure -stripebackground [ dict get $icons defaultBackground ]
-    $tbl configure -spacing 2
+    $tbl configure -spacing [hdbspace 3]
     $tbl columnconfigure 0 -align center
     $tbl columnconfigure 1 -align center
     $tbl columnconfigure 2 -align center

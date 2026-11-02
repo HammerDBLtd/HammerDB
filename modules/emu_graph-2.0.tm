@@ -644,14 +644,11 @@ if { ![ info exists ribenable ] } { set ribenable false }
 	    set labelcolors 0
 	}
 
-        if { [ string match "*dark*" $::ttk::currentTheme ] } {
-        set graphcolor black
-        } else {
-        set graphcolor white
-        }
+        # Blend ribbons into the actual canvas surface in either theme.
+        set graphcolor [$emu_graph($graph,canvas) cget -background]
 	if { $emu_graph($graph,$tag,lines) } {
 	set colour1 $emu_graph($graph,$tag,colour)
-	#Fix colour 2 to always grade to white
+	#Blend colour 2 into the canvas background
 	set colour2 $graphcolor
         if { [catch {winfo rgb . $colour1} rgb1] } {
             error "invalid color: $colour1"
@@ -796,13 +793,8 @@ set padstroke [ pad_stroke ]
 
     set canvas         $emu_graph($graph,canvas)
 
-        if { [ string match "*dark*" $::ttk::currentTheme ] } {
-        set strokecolor "#626262" 
-        set fillcolor "#c8c8c8"
-        } else {
-        set strokecolor "#c8c8c8"
-        set fillcolor "#626262"
-        }
+        set strokecolor [ttk::style lookup . -bordercolor]
+        set fillcolor [ttk::style lookup . -foreground]
 	
     # clear up any existing axes
     $canvas delete -withtag axis
@@ -812,7 +804,9 @@ set padstroke [ pad_stroke ]
     # y-pos of tick end points and of axis tick labels
     #set ticky [expr {$y_min_c-$ticklen}]
     set ticky [expr {$y_max_c - 30 }]
-    set texty [expr {$y_min_c+$axistextoffset}]
+    # Keep the native-font tick captions inside a short or detached canvas.
+    set texty [expr {min($y_min_c+$axistextoffset,
+        [winfo height $canvas] - [font metrics $graphfont -linespace] / 2.0 - 2)}]
     # put ticks and numbers on the axis 
     # starting at next nice number above x_min
     set delta_x [nicenum [expr {double($x_max-$x_min)/$nticks_x}] 1]
@@ -830,7 +824,7 @@ if { ($t eq 1) || ($t eq 4) || ($t eq 7) || ($t eq 10) || ($t eq 13) || ($t eq 1
 		set tind [ lindex [ split $timelist ] $n ]
 		regsub -all {\}} $tind tind
 	    $canvas create text [x2canvas $graph $t] $texty \
-		-fill $fillcolor -underline {} -text $tind -font "$graphfont 7" -tag [list graph$graph axis]\
+		-fill $fillcolor -underline {} -text $tind -font $graphfont -tag [list graph$graph axis]\
 		-anchor w
 		}
 	}
@@ -853,7 +847,7 @@ set padstroke [ pad_stroke ]
 	    # and add the label
 		set dispf [ expr {int($f)} ]
 	    $canvas create text $textx $y -underline {} -text $dispf -anchor e \
-		-fill $fillcolor -tag [list graph$graph axis] -font "$graphfont 7"
+		-fill $fillcolor -tag [list graph$graph axis] -font $graphfont
         }
     }
 $canvas raise prect
