@@ -29,13 +29,8 @@ proc start_autopilot {} {
         set Name .ed_mainFrame.$btn
         $Name configure -state disabled
     }
-    if { [ string match "*dark*" $ttk::currentTheme ] } {
-    set apbackground [hdbdarkcolor field]
-    set apforeground [hdbdarkcolor foreground]
-    } else {
-    set apbackground white
-    set apforeground #626262 
-    }
+    set apbackground [hdbcolor field]
+    set apforeground [hdbcolor foreground]
     set Name .ed_mainFrame.treeframe.treeview  
     $Name state disabled
     ed_stop_autopilot

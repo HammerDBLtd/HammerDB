@@ -866,11 +866,7 @@ set emug_height [ expr {(150 / 1.333333) * $win_scale_fact} ]
 set axistextoffset [ expr {(20 / 1.333333) * $win_scale_fact * 0.50} ]
 set ticklen [ expr {(10 / 1.333333) * $win_scale_fact * 0.60} ]
 set xref [ expr {(75 / 1.333333) * $win_scale_fact * 0.90} ]
-if { [ string match "*dark*" $ttk::currentTheme ] } {
-set tcbackground [hdbdarkcolor field]
-  } else {
-set tcbackground white
-}
+set tcbackground [hdbcolor field]
 #canvas for black on white numbers
 .ed_mainFrame.tc configure -background $tcbackground
 pack [ tkp::canvas .ed_mainFrame.tc.c -width $scale_width -height $tcc_height -background $tcbackground -highlightthickness 0 ] -side top -anchor ne -padx [ list 0 [ expr {$scale_width * 0.05} ] ] -ipadx [ expr {$scale_width * 0.05} ]
@@ -925,17 +921,10 @@ set emug_height [ expr {$emug_height * $orig_height_percent} ]
     #Set Up LCD Pixels for Canvas size X pixels by Y Pixels Pixel On Rim Colour, Pixel On Fill Colour, Pixel Off Rim Colour, Pixel Off Fill Colour
     #Black & White
     #7 x 87 is the number of pixels we create 7 in height and 87 in length. This remains fixed as we scale up pixel size.
-if { [ string match "*dark*" $ttk::currentTheme ] } {
-    set onrim [hdbdarkcolor foreground]
-    set onfill [hdbdarkcolor foreground]
-    set offrim [hdbdarkcolor field]
-    set offfill [hdbdarkcolor field]
-    } else {
-    set onrim #626262 
-    set onfill #626262 
-    set offrim white
-    set offfill white
-    }
+    set onrim [hdbcolor foreground]
+    set onfill [hdbcolor foreground]
+    set offrim [hdbcolor field]
+    set offfill [hdbcolor field]
     LCD_Pixels 7 87 $onrim $onfill $offrim $offfill $win_scale_fact
     #Add same padding
     set varLCDx 3

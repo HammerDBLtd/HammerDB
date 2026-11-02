@@ -401,15 +401,9 @@ proc load_virtual {}  {
         upvar #0 icons icons
         if { [ info exists icons ] } {
             #running in GUI get values from icons
-            if { [ string match "*dark*" $ttk::currentTheme ] } {
-            set textColor [hdbdarkcolor foreground]
-            set fillColor [hdbdarkcolor field]
+            set textColor [hdbcolor foreground]
+            set fillColor [hdbcolor field]
             set outlineColor [ dict get $icons defaultBackground ]
-            } else {   
-            set textColor black
-            set fillColor white
-            set outlineColor [ dict get $icons defaultBackground ]
-          }
         } else {
             #running in CLI set placeholder values to avoid variable does not exist
             set textColor black
@@ -452,13 +446,8 @@ proc load_virtual {}  {
         set scryarea [ expr {$yval + $rect_sz_fact}]
         set hdb_buff [ expr {$rect_sz_fact/10} ]
         set txt_buff [ expr {$rect_sz_fact/5} ]
-        if { [ string match "*dark*" $ttk::currentTheme ] } {
-	set vucnvbackground [hdbdarkcolor field]
-	set vucnv2background [hdbdarkcolor panel]
-        } else {
-	set vucnvbackground white
-	set vucnv2background #dcdad5
-	}
+        set vucnvbackground [hdbcolor field]
+        set vucnv2background [hdbcolor panel]
         set cnv [ canvas $trdwin.cv -background $vucnvbackground -highlightthickness 0 -scrollregion \
         "$rect_sz_fact $rect_sz_fact $scrxarea $scryarea" -yscrollcommand \
         "$trdwin.cv.cv2.scrollY set" -xscrollcommand "$trdwin.cv.scrollX set" \

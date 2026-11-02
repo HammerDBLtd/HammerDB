@@ -606,7 +606,7 @@ proc construct_menu {Name label cmd_list} {
     eval "menu $newmenu"
     eval [list add_items_to_menu $newmenu $cmd_list]
 
-    $newmenu configure -relief flat -borderwidth 0 -activeborderwidth 0 -activerelief flat -font basic -background [ dict get $icons defaultBackground ] -foreground [ dict get $icons defaultForeground ] -activebackground [ dict get $icons defaultBackground ] -activeforeground "#FF7900" -selectcolor "#FF7900"
+    $newmenu configure -relief flat -borderwidth 0 -activeborderwidth 0 -activerelief flat -font basic -background [ dict get $icons defaultBackground ] -foreground [ dict get $icons defaultForeground ] -activebackground [hdbcolor selection] -activeforeground [hdbcolor foreground] -selectcolor [hdbcolor focus]
 
     pack $Name -anchor nw -expand 0 -ipadx 4 -ipady 0 -padx 0 \
          -pady 0 -side left
@@ -644,7 +644,7 @@ proc add_items_to_menu {menubutton cmdList} {
                     -menu $newmenu"
                 eval $doit
                 menu $newmenu
-                $newmenu configure -relief flat -borderwidth 0 -activeborderwidth 0 -activerelief flat -font basic -background [ dict get $icons defaultBackground ] -foreground [ dict get $icons defaultForeground ] -activebackground [ dict get $icons defaultBackground ] -activeforeground "#FF7900"
+                $newmenu configure -relief flat -borderwidth 0 -activeborderwidth 0 -activerelief flat -font basic -background [ dict get $icons defaultBackground ] -foreground [ dict get $icons defaultForeground ] -activebackground [hdbcolor selection] -activeforeground [hdbcolor foreground]
                 add_items_to_menu $newmenu [lindex $cmd 2]
             }
         }
@@ -961,13 +961,8 @@ proc ed_loadsave {loadflag} {
     pack $Name -side top -anchor nw -expand yes -fill both
 
     set Name $Parent.list.lb1
-    if { [ string match "*dark*" $::ttk::currentTheme ] } {
-    set lbbackground [hdbdarkcolor field]
-    set lbforeground [hdbdarkcolor foreground]
-    } else {
-    set lbbackground white
-    set lbforeground black
-    }
+    set lbbackground [hdbcolor field]
+    set lbforeground [hdbcolor foreground]
     listbox $Name -background $lbbackground -foreground $lbforeground -yscrollcommand "$Parent.list.sb2 set" -selectmode browse
     pack $Name -anchor center -expand 1 -fill both -ipadx 0 -ipady 0 \
          -padx 2 -pady 2 -side left
@@ -1365,21 +1360,12 @@ proc applyctexthighlight {w} {
 
 proc setctexthighlight {w} {
     upvar #0 dbdict dbdict
-    if { [ string match "*dark*" $::ttk::currentTheme ] } {
-    set colour(vars) [hdbdarkcolor success]
-    set colour(cmds) [hdbdarkcolor focus]
-    set colour(functions) [hdbdarkcolor warning]
-    set colour(brackets) [hdbdarkcolor muted]
-    set colour(comments) [hdbdarkcolor muted]
-    set colour(strings) [hdbdarkcolor error]
-    } else {
-    set colour(vars) green
-    set colour(cmds) blue
-    set colour(functions) #edb926
-    set colour(brackets) gray50
-    set colour(comments) gray10
-    set colour(strings) red
-    }
+    set colour(vars) [hdbcolor success]
+    set colour(cmds) [hdbcolor focus]
+    set colour(functions) [hdbcolor warning]
+    set colour(brackets) [hdbcolor muted]
+    set colour(comments) [hdbcolor muted]
+    set colour(strings) [hdbcolor error]
     #Extract list of commands provided by each database for highlighting
     dict for {database attributes} $dbdict {
         dict with attributes {
@@ -1436,25 +1422,13 @@ proc ed_edit {} {
          -padx 0 -pady 0 -side right
 
     set Name $Parent.textFrame.left.text
-    if { [ string match "*dark*" $::ttk::currentTheme ] } {
-        set bwidth 0
-        set hbgrd [hdbdarkcolor selection]
-	set ctextbackground [hdbdarkcolor field]
-	set ctextforeground [hdbdarkcolor foreground]
-	set ctexthighlightbackground [hdbdarkcolor border]
-	set ctextinsertbackground [hdbdarkcolor foreground]
-	set ctextselectforeground [hdbdarkcolor foreground]
-    } else {
-        set bwidth 2
-        set hbgrd [ dict get $icons defaultBackground ]
-        set bwidth 0
-        set hbgrd LightGray
-	set ctextbackground white
-	set ctextforeground black
-	set ctexthighlightbackground LightGray
-	set ctextinsertbackground black
-	set ctextselectforeground black
-    }
+    set bwidth 0
+    set hbgrd [hdbcolor selection]
+    set ctextbackground [hdbcolor field]
+    set ctextforeground [hdbcolor foreground]
+    set ctexthighlightbackground [hdbcolor border]
+    set ctextinsertbackground [hdbcolor foreground]
+    set ctextselectforeground [hdbcolor foreground]
     if { $highlight eq "true" } {
         ctext $Name -relief flat -background $ctextbackground -borderwidth $bwidth -foreground $ctextforeground \
          -highlight 1 \
@@ -1974,11 +1948,7 @@ proc ed_status_message {option {message ""}} {
     if { [ info exists inrun ] } {
         ;
     } else {
-    if { [ string match "*dark*" $::ttk::currentTheme ] } {
-    set smforeground [hdbdarkcolor foreground]
-    } else {
-    set smforeground black
-    }
+        set smforeground [hdbcolor foreground]
         set _ED(status) "$_ED(packagekeyname)"
         set _ED(permstatus) "$_ED(packagekeyname)"
         .ed_mainFrame.statusbar.l15 configure -text "  Mode: $opmode"

@@ -1,4 +1,4 @@
-# Shared with the web service's navy dark palette. Keep classic Tk widgets
+# Palettes follow the web service colours. Keep classic Tk widgets
 # and the image-backed awthemes controls on the same surfaces.
 proc hdbdarkcolor {name} {
     return [dict get {
@@ -10,16 +10,26 @@ proc hdbdarkcolor {name} {
     } $name]
 }
 
+proc hdblightcolor {name} {
+    return [dict get {
+        background #f7f9fc panel #edf2f8 field #ffffff
+        foreground #0e1626 muted #536176 border #d3dce9
+        hover #e4ecf7 selection #dbeafe focus #185adb
+        brand #ff7900 disabled #68768b success #17643d
+        warning #855500 error #a52a39
+    } $name]
+}
+
+proc hdbcolor {name {theme ""}} {
+    if {$theme eq ""} {set theme $::ttk::currentTheme}
+    if {[string match "*dark*" $theme]} {return [hdbdarkcolor $name]}
+    return [hdblightcolor $name]
+}
+
 proc tilestyle { defaultBackground icons theme } {
-	if { ![ string match "*dark*" $theme ] } {
-	set fieldbackground white
-	set foreground black
-	set selectedbackground [ list selected [ dict get $icons defaultBackground ] ]
-	} else {
-	set fieldbackground [hdbdarkcolor field]
-	set foreground [hdbdarkcolor foreground]
-	set selectedbackground [ list selected [hdbdarkcolor selection] ]
-	}
+    set fieldbackground [hdbcolor field $theme]
+    set foreground [hdbcolor foreground $theme]
+    set selectedbackground [list selected [hdbcolor selection $theme]]
     #Set Tile styles common to both fixed and scaling
     #With Tcl/Tk 9 TkDefaultFont shows as 1 size larger than Tcl/Tk 8 only on Linux, reduce it
     if {!($::tcl_platform(platform) == "windows")} {
@@ -52,38 +62,36 @@ proc tilestyle { defaultBackground icons theme } {
     ttk::style configure TPanedwindow -background $defaultBackground
     ttk::style configure TButton -relief flat
 
-    if {[string match "*dark*" $theme]} {
-        ttk::style configure Treeview -foreground $foreground -borderwidth 0
-        ttk::style map Treeview -foreground [list selected $foreground]
-        ttk::style configure Treeview.Heading -background [hdbdarkcolor panel] \
-            -foreground [hdbdarkcolor muted] -padding {8 6}
-        foreach style {TEntry TSpinbox TCombobox} {
-            ttk::style configure $style -fieldbackground $fieldbackground \
-                -foreground $foreground -selectbackground [hdbdarkcolor selection] \
-                -selectforeground $foreground -insertcolor $foreground
-            ttk::style map $style -foreground \
-                [list disabled [hdbdarkcolor disabled] readonly $foreground] \
-                -fieldbackground [list disabled [hdbdarkcolor panel] readonly $fieldbackground]
-        }
-        ttk::style configure TNotebook.Tab -padding {12 7}
-        ttk::style configure TLabelframe.Label -foreground [hdbdarkcolor muted]
-        # Classic Tk widgets are used by dialogs and the output panes too.
-        foreach widget {Text Listbox} {
-            option add *${widget}.background $fieldbackground widgetDefault
-            option add *${widget}.foreground $foreground widgetDefault
-            option add *${widget}.selectBackground [hdbdarkcolor selection] widgetDefault
-            option add *${widget}.selectForeground $foreground widgetDefault
-            option add *${widget}.highlightBackground [hdbdarkcolor border] widgetDefault
-            option add *${widget}.highlightColor [hdbdarkcolor focus] widgetDefault
-        }
-        option add *Text.insertBackground $foreground widgetDefault
-        option add *Text.inactiveSelectBackground [hdbdarkcolor selection] widgetDefault
-        foreach {key colour} {
-            bg field cursor foreground stdin foreground stdout focus
-            stderr error prompt muted proc success var warning disabled disabled
-        } {
-            set ::tkcon::COLOR($key) [hdbdarkcolor $colour]
-        }
+    ttk::style configure Treeview -foreground $foreground -borderwidth 0
+    ttk::style map Treeview -foreground [list selected $foreground]
+    ttk::style configure Treeview.Heading -background [hdbcolor panel] \
+        -foreground [hdbcolor muted] -padding {8 6}
+    foreach style {TEntry TSpinbox TCombobox} {
+        ttk::style configure $style -fieldbackground $fieldbackground \
+            -foreground $foreground -selectbackground [hdbcolor selection] \
+            -selectforeground $foreground -insertcolor $foreground
+        ttk::style map $style -foreground \
+            [list disabled [hdbcolor disabled] readonly $foreground] \
+            -fieldbackground [list disabled [hdbcolor panel] readonly $fieldbackground]
+    }
+    ttk::style configure TNotebook.Tab -padding {12 7}
+    ttk::style configure TLabelframe.Label -foreground [hdbcolor muted]
+    # Classic Tk widgets are used by dialogs and the output panes too.
+    foreach widget {Text Listbox} {
+        option add *${widget}.background $fieldbackground widgetDefault
+        option add *${widget}.foreground $foreground widgetDefault
+        option add *${widget}.selectBackground [hdbcolor selection] widgetDefault
+        option add *${widget}.selectForeground $foreground widgetDefault
+        option add *${widget}.highlightBackground [hdbcolor border] widgetDefault
+        option add *${widget}.highlightColor [hdbcolor focus] widgetDefault
+    }
+    option add *Text.insertBackground $foreground widgetDefault
+    option add *Text.inactiveSelectBackground [hdbcolor selection] widgetDefault
+    foreach {key colour} {
+        bg field cursor foreground stdin foreground stdout focus
+        stderr error prompt muted proc success var warning disabled disabled
+    } {
+        set ::tkcon::COLOR($key) [hdbcolor $colour]
     }
 
     # The light awbreeze Toolbutton already gives the required flat menu bar
@@ -149,31 +157,23 @@ proc initscaletheme {theme pixelsperpoint} {
     package require awthemes
     ::themeutils::setHighlightColor $theme "#FF7900"
     ::themeutils::setThemeColors $theme graphics.color #FF7900 focus.color #FF7900
-    #Set scrollbar colors for awlight and breeze to the same as arc theme
-	if { ![ string match "*dark*" $theme ] } {
-    ::themeutils::setThemeColors $theme scrollbar.active #d3d4d8
-    ::themeutils::setThemeColors $theme scrollbar.color #b8babf
-    ::themeutils::setThemeColors $theme scrollbar.pressed #FF7900
-    ::themeutils::setThemeColors $theme scrollbar.trough #eff0f1
-	} else {
     ::themeutils::setThemeColors $theme \
-        bg.bg [hdbdarkcolor background] fg.fg [hdbdarkcolor foreground] \
-        bg.light [hdbdarkcolor panel] bg.lighter [hdbdarkcolor hover] \
-        bg.lightest [hdbdarkcolor muted] \
-        border [hdbdarkcolor border] focus.color [hdbdarkcolor focus] \
-        active.color [hdbdarkcolor hover] \
-        button [hdbdarkcolor panel] button.pressed [hdbdarkcolor selection] \
-        entrybg.bg [hdbdarkcolor field] \
-        select.bg [hdbdarkcolor selection] select.fg [hdbdarkcolor foreground] \
-        select.bg.tree [hdbdarkcolor selection] \
-        select.bg.inactive [hdbdarkcolor selection] \
-        fg.disabled [hdbdarkcolor disabled] entryfg.disabled [hdbdarkcolor disabled] \
-        arrow.color [hdbdarkcolor muted] \
-        scrollbar.color.active [hdbdarkcolor muted] \
-        scrollbar.color [hdbdarkcolor border] \
-        scrollbar.color.pressed [hdbdarkcolor focus] \
-        scrollbar.trough [hdbdarkcolor background]
-	}
+        bg.bg [hdbcolor background $theme] fg.fg [hdbcolor foreground $theme] \
+        bg.light [hdbcolor panel $theme] bg.lighter [hdbcolor hover $theme] \
+        bg.lightest [hdbcolor muted $theme] \
+        border [hdbcolor border $theme] focus.color [hdbcolor focus $theme] \
+        active.color [hdbcolor hover $theme] \
+        button [hdbcolor panel $theme] button.pressed [hdbcolor selection $theme] \
+        entrybg.bg [hdbcolor field $theme] \
+        select.bg [hdbcolor selection $theme] select.fg [hdbcolor foreground $theme] \
+        select.bg.tree [hdbcolor selection $theme] \
+        select.bg.inactive [hdbcolor selection $theme] \
+        fg.disabled [hdbcolor disabled $theme] entryfg.disabled [hdbcolor disabled $theme] \
+        arrow.color [hdbcolor muted $theme] \
+        scrollbar.color.active [hdbcolor muted $theme] \
+        scrollbar.color [hdbcolor border $theme] \
+        scrollbar.color.pressed [hdbcolor focus $theme] \
+        scrollbar.trough [hdbcolor background $theme]
     ::themeutils::setThemeColors $theme \
         style.progressbar rounded-line \
         style.scale circle-rev \
@@ -225,11 +225,7 @@ proc initscaletheme {theme pixelsperpoint} {
     set iconhighlightsvg iconicorangesvg
     set iconaltsvg [ create_icon_images $iconhighlightsvg ]
     set defaultBackground [ ttk::style lookup TFrame -background ]
-	if { ![ string match "*dark*" $theme ] } {
-    	set defaultForeground black
-	} else {
-        set defaultForeground [hdbdarkcolor foreground]
-	}
+    set defaultForeground [hdbcolor foreground $theme]
     dict set icons defaultBackground $defaultBackground
     dict set icons defaultForeground $defaultForeground
     dict set iconssvg defaultBackground $defaultBackground

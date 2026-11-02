@@ -81,18 +81,11 @@ proc tablist w {
     grid rowconfigure    $tf 0 -weight 1
     grid columnconfigure $tf 0 -weight 1
     pack $tf -side top -expand yes -fill both
-    if { ![ string match "*dark*" $ttk::currentTheme ] } {
-        $tbl configure -background white
-        $tbl configure -foreground black
-        $tbl configure -labelforeground black
-        $tbl configure -selectbackground #FF7900
-    } else {
-        $tbl configure -background [hdbdarkcolor field]
-        $tbl configure -foreground [hdbdarkcolor foreground]
-        $tbl configure -labelforeground [hdbdarkcolor muted]
-        $tbl configure -selectbackground [hdbdarkcolor selection]
-        $tbl configure -selectforeground [hdbdarkcolor foreground]
-    }
+    $tbl configure -background [hdbcolor field]
+    $tbl configure -foreground [hdbcolor foreground]
+    $tbl configure -labelforeground [hdbcolor muted]
+    $tbl configure -selectbackground [hdbcolor selection]
+    $tbl configure -selectforeground [hdbcolor foreground]
     $tbl configure -stripebackground [ dict get $icons defaultBackground ]
     $tbl configure -spacing 2
     $tbl columnconfigure 0 -align center
