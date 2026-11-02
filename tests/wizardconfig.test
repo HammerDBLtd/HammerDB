@@ -1,0 +1,153 @@
+# Run: tclsh9.0 tests/wizardconfig.test (with the normal HammerDB runtime).
+package require Tcl 9.0
+package require tcltest
+namespace import ::tcltest::*
+set root [file dirname [file dirname [file normalize [info script]]]]
+::tcl::tm::path add [file join $root modules]
+package require xml
+package require json
+package require wizardconfig
+
+proc load_fixture {} {
+    global dbdict genericdict root
+    set dbdict [::XML::To_Dict [file join $root config database.xml]]
+    set genericdict [::XML::To_Dict [file join $root config generic.xml]]
+    foreach key [dict keys $dbdict] {
+        set ::config$key [::XML::To_Dict [file join $root config $key.xml]]
+    }
+}
+proc database {metadata id} {
+    foreach db [dict get $metadata databases] {
+        if {[dict get $db id] eq $id} {return $db}
+    }
+    error "Missing database $id"
+}
+proc field_by_name {fields name} {
+    foreach field $fields {
+        if {[dict get $field name] eq $name} {return $field}
+    }
+    error "Missing field $name"
+}
+
+# Unit tests use real configuration and mock only library installation status.
+rename ::wizardconfig::library_status ::wizardconfig::native_library_status
+proc ::wizardconfig::library_status {specification} {return available}
+load_fixture
+
+test wizardconfig-1.1 {all configured families and both existing workloads} -body {
+    set metadata [json::json2dict [wizardconfig::metadata]]
+    set found {}
+    foreach db [dict get $metadata databases] {
+        lappend found [dict get $db id]
+        if {[lsort [dict keys [dict get $db workloads]]] ne {C H}} {error "Workload missing"}
+    }
+    lsort $found
+} -result {db2 maria mssqls mysql ora pg vsql}
+
+test wizardconfig-1.2 {preview never claims enhanced execution is enabled} -body {
+    set metadata [json::json2dict [wizardconfig::metadata]]
+    list [dict get $metadata api_version] [dict get $metadata preview] [dict get $metadata custom_execution]
+} -result {1 true false}
+
+test wizardconfig-1.3 {only authoritative native configuration keys are emitted} -body {
+    set metadata [json::json2dict [wizardconfig::metadata]]
+    foreach db [dict get $metadata databases] {
+        set source ""
+        dict for {key descriptor} $dbdict {
+            if {[dict get $descriptor prefix] eq [dict get $db id]} {set source [set ::config$key]}
+        }
+        dict for {workload options} [dict get $db workloads] {
+            foreach field [concat [dict get $options connection] [dict get $options settings]] {
+                if {![dict exists $source [dict get $field group] [dict get $field name]]} {
+                    error "Invented option: [dict get $field name]"
+                }
+            }
+        }
+    }
+    return valid
+} -result valid
+
+test wizardconfig-1.4 {credentials are never serialized, even configured defaults} -setup {
+    dict set configpostgresql tpcc pg_pass HIDDEN_SECRET_SENTINEL
+    dict set configpostgresql tpcc pg_superuserpass HIDDEN_SECRET_SENTINEL
+    dict set configmssqlserver connection mssqls_pass HIDDEN_SECRET_SENTINEL
+    dict set configmysql connection mysql_ssl_key HIDDEN_SECRET_SENTINEL
+} -body {
+    set payload [wizardconfig::metadata]
+    list [string match *HIDDEN_SECRET_SENTINEL* $payload] \
+        [regexp -nocase {"name":\s*"[^"]*(pass|secret|token|ssl_key)} $payload]
+} -cleanup {load_fixture} -result {0 0}
+
+test wizardconfig-1.5 {field builder also rejects accidental secret descriptors} -body {
+    wizardconfig::field $configpostgresql tpcc pg_pass username "Wrong" text
+} -result {}
+
+test wizardconfig-1.6 {PostgreSQL workload database names and XML defaults retained} -body {
+    set options [dict get [database [json::json2dict [wizardconfig::metadata]] pg] workloads H]
+    set field [field_by_name [dict get $options connection] pg_tpch_dbase]
+    list [dict get $field group] [dict get $field role] [dict get $field default]
+} -result {tpch database tpch}
+
+test wizardconfig-1.7 {schema building VUs differ from generic driver virtual users} -body {
+    set metadata [json::json2dict [wizardconfig::metadata]]
+    set options [dict get [database $metadata pg] workloads C]
+    set field [field_by_name [dict get $options settings] pg_num_vu]
+    list [dict get $field role] [dict get $field group] \
+        [dict get $metadata generic virtual_users] [dict get $metadata generic avu_max]
+} -result {builder_vu tpcc 1 null}
+
+test wizardconfig-1.8 {generic defaults are read from current HammerDB configuration} -setup {
+    dict set genericdict autopilot autopilot_sequence {1 3 6}
+    dict set genericdict virtual_user_options virtual_users 3
+} -body {
+    set generic [dict get [json::json2dict [wizardconfig::metadata]] generic]
+    list [dict get $generic virtual_users] [dict get $generic autopilot_sequence]
+} -cleanup {load_fixture} -result {3 {1 3 6}}
+
+test wizardconfig-1.9 {SQL Server platform-specific auth names and dependency} -body {
+    set result {}
+    foreach platform {unix windows} {
+        set fields [json::json2dict [huddle jsondump \
+            [wizardconfig::connection_fields mssqls $configmssqlserver tpcc $platform]]]
+        set uid [field_by_name $fields mssqls_uid]
+        lappend result [dict get $uid condition name] [dict get $uid condition values]
+    }
+    set result
+} -result {mssqls_linux_authent sql mssqls_authentication sql}
+
+test wizardconfig-1.10 {unconfigured or unsupported workload is not advertised} -setup {
+    dict set dbdict postgresql workloads TPROC-C
+    unset configdb2
+} -body {
+    set metadata [json::json2dict [wizardconfig::metadata]]
+    list [dict keys [dict get [database $metadata pg] workloads]] [llength [dict get $metadata databases]]
+} -cleanup {load_fixture} -result {C 6}
+
+test wizardconfig-1.11 {library failure remains unavailable without leaking diagnostics} -body {
+    list [wizardconfig::native_library_status WizardLibraryThatMustNotExist] \
+        [wizardconfig::native_library_status {Tcl 9.0}]
+} -result {unavailable available}
+
+test wizardconfig-1.12 {metadata request does not mutate configuration} -body {
+    set before [list $dbdict $genericdict $configpostgresql $configmssqlserver]
+    wizardconfig::metadata
+    expr {$before eq [list $dbdict $genericdict $configpostgresql $configmssqlserver]}
+} -result 1
+
+test wizardconfig-1.13 {credential-bearing non-secret connection defaults are withheld} -setup {
+    dict set configoracle connection instance system/HIDDEN_SECRET_SENTINEL@db.example/ORCL
+    dict set configpostgresql connection pg_host postgresql://user:HIDDEN_SECRET_SENTINEL@db.example
+    dict set configmssqlserver connection mssqls_linux_server {Server=db.example;PWD=HIDDEN_SECRET_SENTINEL}
+} -body {
+    set payload [wizardconfig::metadata]
+    set metadata [json::json2dict $payload]
+    set oracle [dict get [database $metadata ora] workloads C connection]
+    list [string match *HIDDEN_SECRET_SENTINEL* $payload] \
+        [dict get [field_by_name $oracle instance] default]
+} -cleanup {load_fixture} -result {0 {}}
+
+rename ::wizardconfig::library_status {}
+rename ::wizardconfig::native_library_status ::wizardconfig::library_status
+set failed $::tcltest::numTests(Failed)
+cleanupTests
+exit [expr {$failed > 0}]
