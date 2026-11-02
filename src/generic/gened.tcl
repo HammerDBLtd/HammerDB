@@ -962,8 +962,8 @@ proc ed_loadsave {loadflag} {
 
     set Name $Parent.list.lb1
     if { [ string match "*dark*" $::ttk::currentTheme ] } {
-    set lbbackground black
-    set lbforeground white
+    set lbbackground [hdbdarkcolor field]
+    set lbforeground [hdbdarkcolor foreground]
     } else {
     set lbbackground white
     set lbforeground black
@@ -1366,12 +1366,12 @@ proc applyctexthighlight {w} {
 proc setctexthighlight {w} {
     upvar #0 dbdict dbdict
     if { [ string match "*dark*" $::ttk::currentTheme ] } {
-    set colour(vars) #528723
-    set colour(cmds) #468CDE
-    set colour(functions) #edb926
-    set colour(brackets) gray50
-    set colour(comments) gray50
-    set colour(strings) #E94F64
+    set colour(vars) [hdbdarkcolor success]
+    set colour(cmds) [hdbdarkcolor focus]
+    set colour(functions) [hdbdarkcolor warning]
+    set colour(brackets) [hdbdarkcolor muted]
+    set colour(comments) [hdbdarkcolor muted]
+    set colour(strings) [hdbdarkcolor error]
     } else {
     set colour(vars) green
     set colour(cmds) blue
@@ -1438,12 +1438,12 @@ proc ed_edit {} {
     set Name $Parent.textFrame.left.text
     if { [ string match "*dark*" $::ttk::currentTheme ] } {
         set bwidth 0
-        set hbgrd LightGray
-	set ctextbackground black
-	set ctextforeground white
-	set ctexthighlightbackground black
-	set ctextinsertbackground white
-	set ctextselectforeground white
+        set hbgrd [hdbdarkcolor selection]
+	set ctextbackground [hdbdarkcolor field]
+	set ctextforeground [hdbdarkcolor foreground]
+	set ctexthighlightbackground [hdbdarkcolor border]
+	set ctextinsertbackground [hdbdarkcolor foreground]
+	set ctextselectforeground [hdbdarkcolor foreground]
     } else {
         set bwidth 2
         set hbgrd [ dict get $icons defaultBackground ]
@@ -1975,7 +1975,7 @@ proc ed_status_message {option {message ""}} {
         ;
     } else {
     if { [ string match "*dark*" $::ttk::currentTheme ] } {
-    set smforeground white
+    set smforeground [hdbdarkcolor foreground]
     } else {
     set smforeground black
     }

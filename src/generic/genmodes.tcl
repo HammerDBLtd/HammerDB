@@ -30,8 +30,8 @@ proc start_autopilot {} {
         $Name configure -state disabled
     }
     if { [ string match "*dark*" $ttk::currentTheme ] } {
-    set apbackground black
-    set apforeground white 
+    set apbackground [hdbdarkcolor field]
+    set apforeground [hdbdarkcolor foreground]
     } else {
     set apbackground white
     set apforeground #626262 

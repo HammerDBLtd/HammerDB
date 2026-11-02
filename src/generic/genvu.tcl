@@ -402,8 +402,8 @@ proc load_virtual {}  {
         if { [ info exists icons ] } {
             #running in GUI get values from icons
             if { [ string match "*dark*" $ttk::currentTheme ] } {
-            set textColor white
-            set fillColor black
+            set textColor [hdbdarkcolor foreground]
+            set fillColor [hdbdarkcolor field]
             set outlineColor [ dict get $icons defaultBackground ]
             } else {   
             set textColor black
@@ -453,8 +453,8 @@ proc load_virtual {}  {
         set hdb_buff [ expr {$rect_sz_fact/10} ]
         set txt_buff [ expr {$rect_sz_fact/5} ]
         if { [ string match "*dark*" $ttk::currentTheme ] } {
-	set vucnvbackground black
-	set vucnv2background black
+	set vucnvbackground [hdbdarkcolor field]
+	set vucnv2background [hdbdarkcolor panel]
         } else {
 	set vucnvbackground white
 	set vucnv2background #dcdad5

@@ -87,10 +87,11 @@ proc tablist w {
         $tbl configure -labelforeground black
         $tbl configure -selectbackground #FF7900
     } else {
-        $tbl configure -background black
-        $tbl configure -foreground white
-        $tbl configure -labelforeground white
-        $tbl configure -selectbackground #FF7900
+        $tbl configure -background [hdbdarkcolor field]
+        $tbl configure -foreground [hdbdarkcolor foreground]
+        $tbl configure -labelforeground [hdbdarkcolor muted]
+        $tbl configure -selectbackground [hdbdarkcolor selection]
+        $tbl configure -selectforeground [hdbdarkcolor foreground]
     }
     $tbl configure -stripebackground [ dict get $icons defaultBackground ]
     $tbl configure -spacing 2
