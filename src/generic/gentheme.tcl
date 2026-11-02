@@ -409,6 +409,10 @@ proc configmessagebox { theme } {
         variable ::ttk::dialog_module::italic_font
         set vertical_padding [hdbspace {12 0}]
         set horizontal_padding [hdbspace 4]
+        # Service status and error reports can contain very long paths/lines.
+        # Bound the text rather than letting its requested width size the
+        # entire dialog beyond the display.
+        set text_width [expr {min([hdbspace 640], int([winfo screenwidth .] * 0.70))}]
 
         ttk::toplevel $window_name 
         wm transient $window_name .ed_mainFrame
@@ -436,14 +440,15 @@ proc configmessagebox { theme } {
 
         if {$details_text != ""} {
             label $window_name.top_frame.details_label -text "${details_text}\n" \
-		-font $italic_font
+		-font $italic_font -wraplength $text_width -justify left
         } \
 	else {
             label $window_name.top_frame.details_label -text {}
         }
 
         ttk::label $window_name.top_frame.icon_label -image $window_icon
-        ttk::label $window_name.top_frame.message_label -text $message_text
+        ttk::label $window_name.top_frame.message_label -text $message_text \
+            -wraplength $text_width -justify left
         ttk::frame $window_name.top_frame.button_frame 
 
         #First set of buttons: abort, retry and ignore.
@@ -506,6 +511,38 @@ proc configmessagebox { theme } {
                 grid $window_name.top_frame.button_frame.no_button -row 0 -column 1 -pady $vertical_padding -padx $horizontal_padding 
                 grid $window_name.top_frame.button_frame.cancel_button -row 0 -column 2  -pady $vertical_padding -padx $horizontal_padding 
             }
+        }
+
+        # Wrapping alone can turn a long service environment into a very tall
+        # dialog. Keep every character available in a scrollable, read-only
+        # report when it would otherwise exceed the usable display height.
+        update idletasks
+        set max_height [expr {min([hdbspace 540], int([winfo screenheight .] * 0.75))}]
+        if {[winfo reqheight $window_name] > $max_height} {
+            set body $window_name.top_frame.report
+            ttk::frame $body
+            set line_height [font metrics HDBCodeFont -linespace]
+            set chrome_height [expr {2 * [$window_name cget -pady] + [hdbspace 16] +
+                [winfo reqheight $window_name.top_frame.button_frame]}]
+            set lines [expr {max(3, int(($max_height - $chrome_height) / $line_height))}]
+            set columns [expr {max(1, int($text_width / [font measure HDBCodeFont 0]))}]
+            text $body.text -font HDBCodeFont -wrap word -width $columns -height $lines -takefocus 1 \
+                -highlightthickness 1 -highlightbackground [hdbcolor border] \
+                -yscrollcommand [list $body.scroll set]
+            ttk::scrollbar $body.scroll -orient vertical -command [list $body.text yview]
+            $body.text insert end $message_text
+            if {$details_text ne ""} {$body.text insert end "\n\n$details_text"}
+            $body.text configure -state disabled
+            grid $body.text -row 0 -column 0 -sticky news
+            grid $body.scroll -row 0 -column 1 -sticky ns
+            grid rowconfigure $body 0 -weight 1
+            grid columnconfigure $body 0 -weight 1
+            grid remove $window_name.top_frame.message_label $window_name.top_frame.details_label
+            grid $body -row 0 -column 1 -rowspan 2 -sticky news
+            grid rowconfigure $window_name 0 -weight 1
+            grid columnconfigure $window_name 0 -weight 1
+            grid rowconfigure $window_name.top_frame 0 -weight 1
+            grid columnconfigure $window_name.top_frame 1 -weight 1
         }
 
         switch $default_focus {

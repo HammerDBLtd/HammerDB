@@ -304,8 +304,8 @@ namespace eval mariamet {
 
                 mon_execute ashtime
                 $public(ash,sqltbl) cellselection clear 0,0 end,end
-                $public(ash,sqltbl) configure -selectbackground $public(bg)
-                $public(ash,sqltbl) configure -selectforeground #FF7900
+                $public(ash,sqltbl) configure -selectbackground [hdbcolor selection]
+                $public(ash,sqltbl) configure -selectforeground [hdbcolor foreground]
                 $public(ash,sqltbl) configure -activestyle none
         #} err ] } { ; }
     }
@@ -390,6 +390,7 @@ namespace eval mariamet {
          -font $public(medfont) -setgrid no \
          -yscrollcommand [list $vsb set] \
          -width $ncols  -height $nrows -stretch all
+        hdbmetricstable $tbl
         bind [$tbl bodytag] <Button-1> {
             foreach {tablelist::W tablelist::x tablelist::y} [tablelist::convEventFields %W %x %y] {}
             if { [ $public(ash,sestbl) containing $tablelist::y] > -1 } {
@@ -409,8 +410,8 @@ namespace eval mariamet {
                 #puts "call ses_tbl, CPU:$CPU, BCPU:$BCPU, LWLock:$LWLock"
 
                 $public(ash,sestbl) cellselection clear 0,0 end,end
-                $public(ash,sestbl) configure -selectbackground $public(bg)
-                $public(ash,sestbl) configure -selectforeground #FF7900
+                $public(ash,sestbl) configure -selectbackground [hdbcolor selection]
+                $public(ash,sestbl) configure -selectforeground [hdbcolor foreground]
 		$public(ash,sestbl) configure -activestyle none
                 $public(ash,output) delete 0.0 end
                 #$public(ash,output) insert  insert "   working ... "
@@ -428,12 +429,12 @@ namespace eval mariamet {
                 clipboard append $id
             } else {
                 $public(ash,sestbl) cellselection clear 0,0 end,end
-                $public(ash,sestbl) configure -selectbackground $public(bg)
+                $public(ash,sestbl) configure -selectbackground [hdbcolor selection]
                 $public(ash,sestbl) configure -selectforeground $public(fg)
             }
         }
 
-        if {[$tbl cget -selectborderwidth] == 0} { $tbl configure -spacing 1 }
+        if {[$tbl cget -selectborderwidth] == 0} { $tbl configure -spacing [hdbspace 2] }
 
         set row 0
         foreach  col $cols {
@@ -478,6 +479,7 @@ namespace eval mariamet {
     -font $public(medfont) -setgrid no \
     -yscrollcommand [list $vsb set] \
     -width $ncols -height $nrows -stretch all
+        hdbmetricstable $tbl
         set public(sqltbl,cell)  0,0
         bind [$tbl bodytag] <Button-1> {
             foreach {tablelist::W tablelist::x tablelist::y} [tablelist::convEventFields %W %x %y] {}
@@ -495,27 +497,27 @@ namespace eval mariamet {
                 set public(ash,realsqlid) $id
                 ash_sqltxt $id
                 if { "$public(ash,overtimeid)" == "$id" } {
-                    $public(ash,sqltbl) configure -selectbackground $public(bg)
-                    $public(ash,sqltbl) configure -selectforeground #FF7900
+                    $public(ash,sqltbl) configure -selectbackground [hdbcolor selection]
+                    $public(ash,sqltbl) configure -selectforeground [hdbcolor foreground]
                     update idletasks
                     sqlovertime $id
                     set public(ash,overtimeid) -1
                 } else {
-                    $public(ash,sqltbl) configure -selectbackground $public(bg)
-                    $public(ash,sqltbl) configure -selectforeground #FF7900
+                    $public(ash,sqltbl) configure -selectbackground [hdbcolor selection]
+                    $public(ash,sqltbl) configure -selectforeground [hdbcolor foreground]
                     update idletasks
                     set public(ash,overtimeid) $id
                     sqlovertime clear
                 }
             } else {
                 $public(ash,sqltbl) cellselection clear 0,0 end,end
-                $public(ash,sqltbl) configure -selectbackground $public(bg)
-                $public(ash,sqltbl) configure -selectforeground #FF7900
+                $public(ash,sqltbl) configure -selectbackground [hdbcolor selection]
+                $public(ash,sqltbl) configure -selectforeground [hdbcolor foreground]
                 sqlovertime clear
             }
         }
 
-        if {[$tbl cget -selectborderwidth] == 0} { $tbl configure -spacing 1 }
+        if {[$tbl cget -selectborderwidth] == 0} { $tbl configure -spacing [hdbspace 2] }
         set row 0
         foreach  col $cols {
             if { $row == 0 } { $tbl columnconfigure 0  -name id -width 12}
@@ -561,7 +563,8 @@ namespace eval mariamet {
     -yscrollcommand [list $vsb set] \
     -xscrollcommand [list $hsb set] \
     -width $ncols  -height $nrows -stretch all
-        if {[$tbl cget -selectborderwidth] == 0} { $tbl configure -spacing 1 }
+        hdbmetricstable $tbl
+        if {[$tbl cget -selectborderwidth] == 0} { $tbl configure -spacing [hdbspace 2] }
         set row 0
         foreach  col $cols {
             if { $row == 0 } { $tbl columnconfigure $row  -name id -width 15 -align left }
@@ -599,7 +602,8 @@ namespace eval mariamet {
     -yscrollcommand [list $vsb set] \
     -xscrollcommand [list $hsb set] \
     -width $ncols  -height $nrows -stretch all
-        if {[$tbl cget -selectborderwidth] == 0} { $tbl configure -spacing 1 }
+        hdbmetricstable $tbl
+        if {[$tbl cget -selectborderwidth] == 0} { $tbl configure -spacing [hdbspace 2] }
         set row 0
         foreach  col $cols {
             if { $row == 0 } { $tbl columnconfigure $row  -name id -maxwidth 15  -width 15 }
@@ -634,13 +638,14 @@ namespace eval mariamet {
     -font $public(medfont) -setgrid no \
     -yscrollcommand [list $vsb set] \
     -width $ncols  -height $nrows -stretch all
+        hdbmetricstable $tbl
         bind [$tbl bodytag] <Button-1> {
             foreach {tablelist::W tablelist::x tablelist::y} [tablelist::convEventFields %W %x %y] {}
             if { [ $public(ash,evttbl) containing $tablelist::y] > -1 } {
                 set id [ $public(ash,evttbl) cellcget [ $public(ash,evttbl) containing [subst $tablelist::y]],id -text]
                 $public(ash,evttbl) cellselection clear 0,0 end,end
-                $public(ash,evttbl) configure -selectbackground  $public(bg)
-                $public(ash,evttbl) configure -selectforeground  #FF7900
+                $public(ash,evttbl) configure -selectbackground [hdbcolor selection]
+                $public(ash,evttbl) configure -selectforeground [hdbcolor foreground]
                 $public(ash,evttbl) configure -activestyle none
                 $public(ash,output) delete 0.0 end
                 #$public(ash,output) insert insert "   working ... "
@@ -651,11 +656,11 @@ namespace eval mariamet {
                 clipboard append $id
             } else {
                 $public(ash,evttbl) cellselection clear 0,0 end,end
-                $public(ash,evttbl) configure -selectbackground $public(bg)
+                $public(ash,evttbl) configure -selectbackground [hdbcolor selection]
                 $public(ash,evttbl) configure -selectforeground $public(fg)
             }
         }
-        if {[$tbl cget -selectborderwidth] == 0} { $tbl configure -spacing 1 }
+        if {[$tbl cget -selectborderwidth] == 0} { $tbl configure -spacing [hdbspace 2] }
         set row 0
         foreach  col $cols {
             if { $row == 0 } { $tbl columnconfigure 0  -name id -width 27}
@@ -1553,6 +1558,8 @@ namespace eval mariamet {
                     set public(ashcolor,$i) [ lindex $color 0 ]
                     incr i
                 }
+                # The final series is blank chart padding, not a wait class.
+                set public(ashcolor,[expr {$i - 1}]) [hdbcolor field]
                 #
                 #  Wait Groups to Display Setup
                 #
@@ -1704,9 +1711,11 @@ namespace eval mariamet {
                 set marker2 [$public(ash,graph) marker create polygon\
            -coords {-Inf Inf Inf Inf Inf -Inf -Inf -Inf} -fill {} \
            -linewidth 1 \
-           -outline black  \
+           -outline [hdbcolor focus]  \
            -hide 1
                 ]
+
+                hdbmetricsgraph $graph
 
                 bind $public(ash,graph)  <ButtonRelease-1> {
                     set cur_proc graphsetupbind
@@ -1790,7 +1799,10 @@ namespace eval mariamet {
                     -xscrollcommand "$output.scrollx set" \
                     -width $public(cols) -height 26    \
                     -wrap word \
-                    -font {basic}
+                    -foreground [hdbcolor foreground] -insertbackground [hdbcolor foreground] \
+                  -selectbackground [hdbcolor selection] -selectforeground [hdbcolor foreground] \
+                  -highlightthickness 0 -padx [hdbspace 8] -pady [hdbspace 6] \
+                  -font HDBCodeFont
                 ttk::scrollbar $output.scrolly -command "$output.w yview"
                 ttk::scrollbar $output.scrollx -command "$output.w xview"  \
                                     -orient horizontal
@@ -2941,6 +2953,7 @@ namespace eval mariamet {
                     set public(ash,sample_id) -1
                     set public(ash,first) -1
                     set public(colors,count) 1
+                    hdbmetricstheme
                 }
 
                 proc maria_post_kill_dbmon_cleanup {} {

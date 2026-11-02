@@ -3740,13 +3740,13 @@ proc wsstatus {} {
         Dict2SQLite "generic" $genericdict
     }
     if [ catch {set tok [http::geturl http://localhost:$ws_port/env]} message ] {
-        after 100 "tk_messageBox -message \"Web Service not running: $message\""
+        after 100 [list tk_messageBox -message "Web Service not running: $message"]
     } else {
         set wsenv [ strip_html [ http::data $tok ]]
         if {[ lindex [ split $wsenv "\n" ] 0 ] eq "Service Environment"} {
-            after 100 "tk_messageBox -message \"Web Service running: $wsenv\""
+            after 100 [list tk_messageBox -message "Web Service running: $wsenv"]
         } else {
-            after 100 "tk_messageBox -message \"Web Service output error: $wsenv\""
+            after 100 [list tk_messageBox -message "Web Service output error: $wsenv"]
         }
         if { [ info exists tok ] } { http::cleanup $tok }
     }

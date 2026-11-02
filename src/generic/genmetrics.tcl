@@ -1,3 +1,59 @@
+# Shared presentation for database Active Session History views. Keep wait
+# classes, vectors, SQL, selection callbacks and collection settings in their
+# existing database implementations.
+proc hdbmetricstheme {} {
+    global public
+    set public(bg) [hdbcolor field]
+    set public(fg) [hdbcolor foreground]
+    set public(bgt) [hdbcolor background]
+    set public(fga) [hdbcolor focus]
+    set public(fgsm) [hdbcolor foreground]
+    set public(bgsm) [hdbcolor selection]
+    set public(graphselect) [hdbcolor selection]
+    set public(smallfont) TkSmallCaptionFont
+    set public(medfont) TkDefaultFont
+    set public(bold) [list -foreground [hdbcolor foreground] \
+        -background [hdbcolor selection] -relief flat -borderwidth 0]
+    set public(normal) [list -background {} -relief flat]
+}
+
+proc hdbmetricstable {tbl} {
+    $tbl configure -background [hdbcolor field] -foreground [hdbcolor foreground] \
+        -font TkDefaultFont -labelfont HDBHeadingFont \
+        -labelforeground [hdbcolor muted] -labelrelief flat \
+        -labelborderwidth 0 -labelpady [hdbspace 4] -borderwidth 0 \
+        -selectbackground [hdbcolor selection] -selectforeground [hdbcolor foreground] \
+        -stripebackground [hdbcolor panel] -stripeforeground [hdbcolor foreground] \
+        -spacing [hdbspace 2]
+}
+
+proc hdbmetricsgraph {graph} {
+    $graph configure -background [hdbcolor background] -foreground [hdbcolor foreground] \
+        -plotbackground [hdbcolor field] -plotborderwidth 0 -plotrelief flat \
+        -borderwidth 0 -relief flat -font HDBHeadingFont \
+        -highlightthickness 1 -highlightbackground [hdbcolor border] \
+        -highlightcolor [hdbcolor focus]
+    $graph legend configure -font TkSmallCaptionFont \
+        -background [hdbcolor background] -foreground [hdbcolor foreground] \
+        -activebackground [hdbcolor hover] -activeforeground [hdbcolor foreground] \
+        -selectbackground [hdbcolor selection] -selectforeground [hdbcolor foreground] \
+        -nofocusselectbackground [hdbcolor selection] \
+        -nofocusselectforeground [hdbcolor foreground] \
+        -focusforeground [hdbcolor focus] -borderwidth 0 \
+        -activeborderwidth 0 -selectborderwidth 0 \
+        -relief flat -activerelief flat -selectrelief flat \
+        -padx [hdbspace 6] -pady [hdbspace 4]
+    foreach axis [$graph axis names] {
+        $graph axis configure $axis -color [hdbcolor muted] \
+            -background [hdbcolor background] -titlecolor [hdbcolor foreground] \
+            -tickfont TkSmallCaptionFont -titlefont TkDefaultFont \
+            -limitsfont TkSmallCaptionFont -limitscolor [hdbcolor muted] \
+            -activeforeground [hdbcolor focus] -activerelief flat \
+            -borderwidth 0 -relief flat -gridcolor [hdbcolor border] \
+            -gridminorcolor [hdbcolor border]
+    }
+}
+
 proc ConfigureNetworkDisplay {agentid agenthostname} {
     #set up port
     if { [catch {::comm new DisplayMetrics -listen 1 -local 0 -silent "TRUE" -port {}} b] } {
