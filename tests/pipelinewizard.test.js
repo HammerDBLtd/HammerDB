@@ -24,7 +24,7 @@ function metadata() {
     for (const workload of ['C', 'H']) {
       const group = workload === 'C' ? 'tpcc' : 'tpch';
       const connection = [field(host, 'connection', 'benchmark.example.test', 'endpoint')];
-      if (!['ora', 'db2'].includes(id)) connection.push(field(port, 'connection', id === 'pg' ? 5432 : 3306,
+      if (!['ora', 'db2'].includes(id)) connection.push(field(port, 'connection', id === 'pg' ? 5432 : id === 'mssqls' ? 1433 : 3306,
         'port', {type: 'number', min: 1, max: 65535}));
       if (['mysql', 'maria', 'vsql'].includes(id)) connection.push(
         field(`${id}_socket`, 'connection', '/tmp/database.sock', 'socket', {required: false, local_only: true}));
@@ -34,6 +34,13 @@ function metadata() {
         field('mssqls_uid', 'connection', 'benchmark_user', 'username',
           {condition: {name: 'mssqls_linux_authent', values: ['sql']}}));
       connection.push(field(schemaName(workload), group, workload === 'C' ? 'tpcc' : 'tpch', 'database'));
+      if (!['ora', 'mssqls'].includes(id)) connection.push(
+        field(`${id}_${workload === 'H' ? 'tpch_' : ''}user`, group, 'benchmark_user', 'username'));
+      const password = id === 'mssqls' ? 'mssqls_pass' : id === 'ora'
+        ? `tpc${workload === 'C' ? 'c' : 'h'}_pass` : `${id}_${workload === 'H' ? 'tpch_' : ''}pass`;
+      connection.push(field(password, id === 'mssqls' ? 'connection' : group, '', 'credential',
+        {type: 'password', secret: true, ...(id === 'mssqls'
+          ? {condition: {name: 'mssqls_linux_authent', values: ['sql']}} : {})}));
       const settings = [
         field(id === 'ora' ? (workload === 'C' ? 'count_ware' : 'scale_fact') :
           `${id}_${workload === 'C' ? 'count_ware' : 'scale_fact'}`, group, 1, 'scale', {type: 'number', min: 1}),
@@ -44,7 +51,11 @@ function metadata() {
         field(id === 'ora' ? 'ora_driver' : `${id}_driver`, group, 'timed', 'driver',
           {type: 'select', options: ['timed', 'test']}),
         field(id === 'ora' ? 'rampup' : `${id}_rampup`, group, 2, 'rampup', {type: 'number', min: 0, condition: {name: id === 'ora' ? 'ora_driver' : `${id}_driver`, values: ['timed']}}),
-        field(id === 'ora' ? 'duration' : `${id}_duration`, group, 5, 'duration', {type: 'number', min: 1, condition: {name: id === 'ora' ? 'ora_driver' : `${id}_driver`, values: ['timed']}})
+        field(id === 'ora' ? 'duration' : `${id}_duration`, group, 5, 'duration', {type: 'number', min: 1, condition: {name: id === 'ora' ? 'ora_driver' : `${id}_driver`, values: ['timed']}}),
+        field(id === 'ora' ? 'allwarehouse' : `${id}_allwarehouse`, group, false, 'advanced',
+          {type: 'checkbox', advanced: true, condition: {name: id === 'ora' ? 'ora_driver' : `${id}_driver`, values: ['timed']}}),
+        field(id === 'ora' ? 'ora_timeprofile' : `${id}_timeprofile`, group, false, 'advanced',
+          {type: 'checkbox', advanced: true, condition: {name: id === 'ora' ? 'ora_driver' : `${id}_driver`, values: ['timed']}})
       );
       else settings.push(
         field(id === 'ora' ? 'total_querysets' : `${id}_total_querysets`, group, 1, 'querysets', {type: 'number'}),
@@ -60,7 +71,7 @@ function metadata() {
 
 function state(overrides = {}) {
   return {location: 'remote', target_mode: 'existing', database: 'pg', workload: 'C',
-    connection_profile: 'rds-benchmark', values: {}, workflow: 'benchmark', operations: [],
+    credential_mode: 'profile', connection_profile: 'rds-benchmark', values: {}, workflow: 'benchmark', operations: [],
     build_schema: false, confirm_build: false, confirm_delete: false, delete_confirmation: '',
     driver_vu: 2, avu_mode: 'auto', max_avu: 24, run_mode: 'single', profile: '1 2 4 8',
     share_result: true, ...overrides};
@@ -301,5 +312,206 @@ test('request summaries redact nested sensitive values and leave canonical reque
     assert.ok(!rendered.includes(secret));
   assert.equal(request.target.password, 'PASSWORD_SENTINEL');
 });
+
+test('session credentials do not require a saved profile and leave only opaque references in a request', () => {
+  const password = 'SESSION_SENTINEL_$a;[opaque]\npassword';
+  const candidate = state({credential_mode: 'session', connection_profile: '', values: {pg_pass: password}});
+  const before = structuredClone(candidate);
+  const request = wizard.buildRequest(candidate, metadata());
+  assert.equal(request.target.credential_mode, 'session');
+  assert.equal(request.target.connection_profile, undefined);
+  assert.equal(request.target.secret_references['tpcc.pg_pass'], 'session:tpcc.pg_pass');
+  assert.equal(request.diset.tpcc.pg_pass, undefined);
+  assert.ok(!JSON.stringify(request).includes(password));
+  assert.ok(!JSON.stringify(wizard.reviewRequest(request)).includes(password));
+  assert.deepEqual(candidate, before, 'planning must not mutate or copy session credential state');
+});
+
+test('profile mode does not ask for session passwords or emit stale session references', () => {
+  const request = wizard.buildRequest(state({credential_mode: 'profile',
+    values: {pg_pass: 'STALE_SESSION_SECRET'}}), metadata());
+  assert.equal(request.target.connection_profile, 'rds-benchmark');
+  assert.equal(request.target.secret_references, undefined);
+  assert.ok(!JSON.stringify(request).includes('STALE_SESSION_SECRET'));
+  assert.throws(() => wizard.buildRequest(state({credential_mode: 'profile', connection_profile: ''}), metadata()));
+});
+
+test('required session passwords validate without echoing their values in errors', () => {
+  const candidate = state({credential_mode: 'session', connection_profile: ''});
+  assert.ok(wizard.validate(candidate, metadata(), {scope: 'connection'}).length);
+  for (const password of [42, 'LONG_SECRET_SENTINEL'.repeat(500)]) {
+    const errors = wizard.validate({...candidate, values: {pg_pass: password}}, metadata());
+    assert.ok(errors.length);
+    assert.ok(!JSON.stringify(errors).includes(String(password)));
+  }
+});
+
+test('all seven engines and both workloads can plan using session credentials without profiles', () => {
+  const capabilities = metadata();
+  for (const database of capabilities.databases) for (const [workload, config] of Object.entries(database.workloads)) {
+    const secret = config.connection.find(item => item.secret);
+    const request = wizard.buildRequest(state({database: database.id, workload,
+      credential_mode: 'session', connection_profile: '', values: {[secret.name]: 'SESSION_CREDENTIAL_SENTINEL'}}), capabilities);
+    assert.equal(request.target.credential_mode, 'session');
+    assert.equal(request.target.secret_references[`${secret.group}.${secret.name}`], `session:${secret.group}.${secret.name}`);
+    assert.ok(!JSON.stringify(request).includes('SESSION_CREDENTIAL_SENTINEL'));
+  }
+});
+
+test('target validation lets users reach Connection without an existing profile or later-step settings', () => {
+  const candidate = state({credential_mode: 'session', connection_profile: '', workflow: 'operations',
+    operations: [], values: {pg_duration: 0}});
+  assert.deepEqual(wizard.validate(candidate, metadata(), {scope: 'target'}), []);
+  assert.ok(wizard.validate({...candidate, database: 'unsupported'}, metadata(), {scope: 'target'}).length);
+});
+
+test('Connection validates only fields users can repair there after Back from Benchmark', () => {
+  const candidate = state({values: {pg_duration: 0}, workflow: 'operations', operations: []});
+  assert.deepEqual(wizard.validate(candidate, metadata(), {scope: 'connection'}), []);
+  assert.ok(wizard.validate(candidate, metadata(), {scope: 'benchmark'}).length);
+  const fixed = {...candidate, values: {pg_duration: 5}, operations: ['run']};
+  assert.deepEqual(wizard.validate(fixed, metadata()), []);
+});
+
+test('a malformed endpoint can be fixed without discarding valid benchmark configuration', () => {
+  const candidate = state({values: {pg_host: 'host; exec id', pg_duration: 10},
+    run_mode: 'profile', profile: '1 2 4'});
+  assert.ok(wizard.validate(candidate, metadata(), {scope: 'connection'}).length);
+  const fixed = {...candidate, values: {...candidate.values, pg_host: 'approved.example.test'}};
+  assert.deepEqual(wizard.validate(fixed, metadata(), {scope: 'connection'}), []);
+  assert.equal(wizard.buildRequest(fixed, metadata()).diset.tpcc.pg_duration, 10);
+});
+
+test('test-driver selection omits stale timed-only advanced options', () => {
+  const request = wizard.buildRequest(state({values: {pg_driver: 'test', pg_allwarehouse: true,
+    pg_timeprofile: true, pg_rampup: 5, pg_duration: 10}}), metadata());
+  for (const key of ['pg_allwarehouse', 'pg_timeprofile', 'pg_rampup', 'pg_duration'])
+    assert.equal(request.diset.tpcc[key], undefined);
+  assert.equal(request.diset.tpcc.pg_driver, 'test');
+});
+
+test('compound native checkbox dependencies omit values until every prerequisite is active', () => {
+  const capabilities = metadata();
+  const config = capabilities.databases.find(db => db.id === 'pg').workloads.C;
+  config.settings.push(
+    field('pg_keyandthink', 'tpcc', false, 'advanced', {type: 'checkbox', advanced: true}),
+    field('pg_async_scale', 'tpcc', false, 'advanced', {type: 'checkbox', advanced: true,
+      conditions: [{name: 'pg_driver', values: ['timed']}, {name: 'pg_keyandthink', values: ['true']}]}),
+    field('pg_async_client', 'tpcc', 10, 'advanced', {type: 'number', advanced: true,
+      conditions: [{name: 'pg_driver', values: ['timed']}, {name: 'pg_keyandthink', values: ['true']},
+        {name: 'pg_async_scale', values: ['true']}]})
+  );
+  for (const values of [{pg_keyandthink: false, pg_async_scale: true, pg_async_client: 15},
+    {pg_driver: 'test', pg_keyandthink: true, pg_async_scale: true, pg_async_client: 15}]) {
+    const request = wizard.buildRequest(state({values}), capabilities);
+    assert.equal(request.diset.tpcc.pg_async_scale, undefined);
+    assert.equal(request.diset.tpcc.pg_async_client, undefined);
+  }
+  const enabled = wizard.buildRequest(state({values: {pg_keyandthink: true,
+    pg_async_scale: true, pg_async_client: 15}}), capabilities);
+  assert.equal(enabled.diset.tpcc.pg_async_scale, 'true');
+  assert.equal(enabled.diset.tpcc.pg_async_client, 15);
+});
+
+test('native numeric checkbox values are preserved for Oracle RAC', () => {
+  const capabilities = metadata();
+  capabilities.databases.find(db => db.id === 'ora').workloads.C.connection.push(
+    field('rac', 'connection', false, 'advanced', {type: 'checkbox', advanced: true,
+      true_value: 1, false_value: 0}));
+  assert.equal(wizard.buildRequest(state({database: 'ora', values: {rac: true}}), capabilities).diset.connection.rac, 1);
+  assert.equal(wizard.buildRequest(state({database: 'ora', values: {rac: false}}), capabilities).diset.connection.rac, 0);
+});
+
+test('operation-scoped administrative credentials do not accompany run-only requests', () => {
+  const capabilities = metadata();
+  capabilities.databases.find(db => db.id === 'pg').workloads.C.connection.push(
+    field('pg_superuser', 'tpcc', 'postgres', 'admin_username', {operations: ['buildschema', 'checkschema', 'deleteschema']}),
+    field('pg_superuserpass', 'tpcc', '', 'credential', {type: 'password', secret: true,
+      required: false, operations: ['buildschema', 'checkschema', 'deleteschema']}));
+  const candidate = state({credential_mode: 'session', connection_profile: '', workflow: 'operations',
+    operations: ['run'], values: {pg_pass: 'RUN_SECRET_SENTINEL', pg_superuserpass: 'ADMIN_SECRET_SENTINEL'}});
+  const request = wizard.buildRequest(candidate, capabilities);
+  assert.equal(request.diset.tpcc.pg_superuser, undefined);
+  assert.equal(request.target.secret_references['tpcc.pg_superuserpass'], undefined);
+  assert.equal(request.target.secret_references['tpcc.pg_pass'], 'session:tpcc.pg_pass');
+  assert.ok(!JSON.stringify(request).includes('SECRET_SENTINEL'));
+});
+
+test('sharing is inactive for schema-only operations even when the benchmark preference is enabled', () => {
+  const request = wizard.buildRequest(state({workflow: 'operations', operations: ['checkschema'], share_result: true}), metadata());
+  assert.equal(request.share_result, false);
+});
+
+test('mutual TLS fields use native names and are omitted until both TLS controls are enabled', () => {
+  const capabilities = metadata();
+  const config = capabilities.databases.find(db => db.id === 'mysql').workloads.C;
+  const tls = {name: 'mysql_ssl', values: ['true']};
+  const mutual = {name: 'mysql_ssl_two_way', values: ['true']};
+  config.connection.push(
+    field('mysql_ssl', 'connection', false, 'tls', {type: 'checkbox'}),
+    field('mysql_ssl_two_way', 'connection', false, 'tls', {type: 'checkbox', condition: tls}),
+    field('mysql_ssl_ca', 'connection', 'ca-cert.pem', 'tls', {path_reference: true, condition: tls}),
+    field('mysql_ssl_cert', 'connection', 'client-cert.pem', 'tls', {path_reference: true, conditions: [tls, mutual],
+      clear_when: [tls, {name: 'mysql_ssl_two_way', values: ['false']}], inactive_value: ''}),
+    field('mysql_ssl_key', 'connection', 'CLIENT_KEY_PATH_SENTINEL.pem', 'tls',
+      {path_reference: true, sensitive_path: true, conditions: [tls, mutual],
+        clear_when: [tls, {name: 'mysql_ssl_two_way', values: ['false']}], inactive_value: ''})
+  );
+  const disabled = wizard.buildRequest(state({database: 'mysql', values: {
+    mysql_ssl: false, mysql_ssl_two_way: true}}), capabilities);
+  for (const name of ['mysql_ssl_two_way', 'mysql_ssl_ca', 'mysql_ssl_cert', 'mysql_ssl_key'])
+    assert.equal(disabled.diset.connection[name], undefined);
+  const oneWay = wizard.buildRequest(state({database: 'mysql', values: {mysql_ssl: true,
+    mysql_ssl_two_way: false}}), capabilities);
+  assert.equal(oneWay.diset.connection.mysql_ssl_ca, 'ca-cert.pem');
+  assert.equal(oneWay.diset.connection.mysql_ssl_key, '', 'one-way TLS explicitly clears stale mutual-TLS key paths');
+  assert.equal(oneWay.diset.connection.mysql_ssl_cert, '');
+  const mutualRequest = wizard.buildRequest(state({database: 'mysql', values: {
+    mysql_ssl: true, mysql_ssl_two_way: true}}), capabilities);
+  assert.equal(mutualRequest.diset.connection.mysql_ssl_cert, 'client-cert.pem');
+  assert.equal(mutualRequest.diset.connection.mysql_ssl_key, 'CLIENT_KEY_PATH_SENTINEL.pem');
+  assert.ok(!JSON.stringify(wizard.reviewRequest(mutualRequest)).includes('CLIENT_KEY_PATH_SENTINEL'));
+  assert.throws(() => wizard.buildRequest(state({database: 'mysql', values: {
+    mysql_ssl: true, mysql_ssl_two_way: true,
+    mysql_ssl_key: '-----BEGIN PRIVATE KEY----- KEY_CONTENT_SENTINEL -----END PRIVATE KEY-----'}}), capabilities));
+});
+
+for (const platform of ['unix', 'windows']) {
+  test(`${platform} SQL Server auth preserves native fields and omits inactive SQL/managed-identity credentials`, () => {
+    const capabilities = metadata();
+    const config = capabilities.databases.find(db => db.id === 'mssqls').workloads.C;
+    const auth = platform === 'windows' ? 'mssqls_authentication' : 'mssqls_linux_authent';
+    const server = platform === 'windows' ? 'mssqls_server' : 'mssqls_linux_server';
+    const driver = platform === 'windows' ? 'mssqls_odbc_driver' : 'mssqls_linux_odbc';
+    if (platform === 'windows') for (const item of config.connection) {
+      if (item.name === 'mssqls_linux_server') item.name = server;
+      if (item.name === 'mssqls_linux_authent') item.name = auth;
+      if (item.condition?.name === 'mssqls_linux_authent') item.condition.name = auth;
+    }
+    config.connection.push(
+      field(driver, 'connection', 'ODBC Driver 18 for SQL Server', 'advanced'),
+      field('mssqls_msi_object_id', 'connection', 'null', 'advanced',
+        {condition: {name: auth, values: ['entra']}})
+    );
+    const windowsAuth = wizard.buildRequest(state({database: 'mssqls', credential_mode: 'session',
+      connection_profile: '', values: {[auth]: 'windows', mssqls_uid: 'stale-user',
+        mssqls_pass: 'STALE_SQL_SECRET', mssqls_msi_object_id: 'stale-object'}}), capabilities);
+    assert.equal(windowsAuth.diset.connection[auth], 'windows');
+    assert.ok(windowsAuth.diset.connection[server]);
+    assert.equal(windowsAuth.diset.connection[driver], 'ODBC Driver 18 for SQL Server');
+    assert.equal(windowsAuth.diset.connection.mssqls_uid, undefined);
+    assert.equal(windowsAuth.diset.connection.mssqls_msi_object_id, undefined);
+    assert.equal(windowsAuth.target.secret_references, undefined);
+    const sqlAuth = wizard.buildRequest(state({database: 'mssqls', credential_mode: 'session',
+      connection_profile: '', values: {[auth]: 'sql', mssqls_pass: 'SQL_SECRET_SENTINEL'}}), capabilities);
+    assert.equal(sqlAuth.target.secret_references['connection.mssqls_pass'], 'session:connection.mssqls_pass');
+    assert.ok(!JSON.stringify(sqlAuth).includes('SQL_SECRET_SENTINEL'));
+    const entraAuth = wizard.buildRequest(state({database: 'mssqls', credential_mode: 'session',
+      connection_profile: '', values: {[auth]: 'entra', mssqls_msi_object_id: 'managed-identity-id'}}), capabilities);
+    assert.equal(entraAuth.diset.connection.mssqls_msi_object_id, 'managed-identity-id');
+    assert.equal(entraAuth.diset.connection.mssqls_uid, undefined);
+    assert.equal(entraAuth.target.secret_references, undefined);
+  });
+}
 
 module.exports = {metadata, state};

@@ -973,7 +973,9 @@ document.addEventListener('DOMContentLoaded', function () {
         wapp-subst {</div>}
         wapp-subst {</div>}
 
-        wapp-subst {<details id="existing-pipeline" class="hdb-section" hidden open style="width:100%; max-width:980px; margin:0 0 24px 0;"><summary>Provision using existing Pipeline</summary>}
+        # Progressive enhancement: preserve the original controls if the wizard
+        # script cannot load. A successful wizard mount selects one workflow.
+        wapp-subst {<details id="existing-pipeline" class="hdb-section" open style="width:100%; max-width:980px; margin:0 0 24px 0;"><summary>Provision using existing Pipeline</summary>}
 
         # database chooser
         wapp-subst {<p><b>Database</b></p>}
@@ -1080,6 +1082,7 @@ wapp-subst {</div>}
 wapp-subst {</div>}
 
         wapp-subst {<div class="hdb-actions-left aut-actions" style="width:100%; max-width:980px; text-align:left;">}
+        wapp-subst {<p id="pipeline-live-notice" class="aut-mini"><strong>Live source-build Pipeline.</strong> Run Benchmark uses the configured CI and can provision a database and run benchmarks. This is separate from the wizard simulation.</p>}
         wapp-subst {<button class="aut-btn" type="submit" form="runform">Run Benchmark</button>}
         wapp-subst {</div>}
         wapp-subst {</form>}

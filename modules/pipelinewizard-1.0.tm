@@ -1,7 +1,7 @@
 # Stage 1 presentation only. The enhanced CI execution contract is not live.
 package provide pipelinewizard 1.0
 namespace eval pipelinewizard {
-    namespace export wapp-page-pipeline-wizard.js wapp-page-pipeline-wizard.css wapp-page-pipeline-wizard-config
+    namespace export wapp-page-pipeline-wizard.js wapp-page-pipeline-wizard.css wapp-page-pipeline-wizard-config wapp-page-pipeline-wizard-mock.js
     variable assetdir [file join [file dirname [info script]] .. src webservice]
 
     proc asset {name mimetype} {
@@ -12,6 +12,9 @@ namespace eval pipelinewizard {
     }
     proc wapp-page-pipeline-wizard.js {} {
         asset pipelinewizard.js {text/javascript; charset=utf-8}
+    }
+    proc wapp-page-pipeline-wizard-mock.js {} {
+        asset pipelinewizard-mock.js {text/javascript; charset=utf-8}
     }
     proc wapp-page-pipeline-wizard.css {} {
         asset pipelinewizard.css {text/css; charset=utf-8}
@@ -27,7 +30,7 @@ namespace eval pipelinewizard {
 <link rel="stylesheet" href="%url($B/pipeline-wizard.css)">
 <section id="hdb-pipeline-wizard" data-pipeline-wizard aria-labelledby="wizard-title" data-config-url="%html($B/pipeline-wizard-config)">
   <h2 id="wizard-title">Configure a benchmark</h2>
-  <p class="wizard-notice"><strong>Wizard preview</strong> — review an existing-endpoint request. Custom CI execution, connection checks and result sharing are awaiting backend integration. Nothing is submitted by this wizard.</p>
+  <p id="wizard-mode-notice" class="wizard-notice"><strong>Wizard workflow testing</strong> — the new existing-database wizard uses simulated responses. The original source-build Pipeline below retains live CI execution.</p>
   <p id="wizard-loading" role="status">Loading installation configuration…</p>
   <noscript><style>html #existing-pipeline[hidden]{display:block!important}</style><p>Enable JavaScript to use the wizard. The existing source-build Pipeline remains available below.</p></noscript>
   <form id="wizard-form" hidden novalidate>
@@ -56,9 +59,14 @@ namespace eval pipelinewizard {
     <section data-wizard-step="1" aria-labelledby="wizard-connection-title" hidden>
       <h3 id="wizard-connection-title" tabindex="-1">Connect to an existing database</h3>
       <p>No database software is installed and no target service is started or stopped.</p>
-      <label>Operator connection profile <input id="wizard-profile" name="connection_profile" autocomplete="off" spellcheck="false" placeholder="For example postgres-test" required></label>
-      <p class="wizard-help">Enter an operator-managed profile reference. Passwords stay in the deployment’s credential configuration. This preview does not validate credentials or contact the database.</p>
+      <fieldset class="wizard-segmented"><legend>Credentials</legend>
+        <label><input type="radio" name="credential_mode" value="session" checked><span>Enter for this session</span></label>
+        <label><input type="radio" name="credential_mode" value="profile"><span>Configured profile</span></label>
+      </fieldset>
+      <label id="wizard-profile-label" hidden>Configured connection profile <select id="wizard-profile" name="connection_profile"></select></label>
+      <p id="wizard-credential-help" class="wizard-help">Passwords stay in this page’s memory and are discarded when the simulation starts or the target changes. Only placeholders reach the simulator; no credentials are checked.</p>
       <div id="wizard-connection-fields" class="wizard-grid"></div>
+      <details id="wizard-connection-advanced"><summary>Advanced connection settings</summary><div id="wizard-connection-advanced-fields" class="wizard-grid"></div></details>
     </section>
     <section data-wizard-step="2" aria-labelledby="wizard-benchmark-title" hidden>
       <h3 id="wizard-benchmark-title" tabindex="-1">Choose benchmark operations</h3>
@@ -86,7 +94,7 @@ namespace eval pipelinewizard {
       <div id="wizard-run-options">
         <div class="wizard-grid">
           <label>Benchmark driver virtual users <input type="number" min="1" step="1" id="wizard-driver-vu" value="1"></label>
-          <label>Run mode <select id="wizard-run-mode"><option value="single">Single</option><option value="profile">Increasing concurrency profile (TPROC-C preview)</option></select></label>
+          <label>Run mode <select id="wizard-run-mode"><option value="single">Single</option><option value="profile">Increasing concurrency profile (TPROC-C)</option></select></label>
         </div>
         <p class="wizard-help">Driver virtual users, schema-building virtual users, profile concurrency points and Max AVU are separate settings. TPROC-C timed drivers include a monitor user; TPROC-H query users follow the workload’s own semantics.</p>
         <fieldset class="wizard-segmented"><legend>Max AVU</legend>
@@ -95,30 +103,40 @@ namespace eval pipelinewizard {
         </fieldset>
         <p id="wizard-auto-help"></p>
         <div id="wizard-manual-avu" hidden>
-          <label>Max AVU <output id="wizard-avu-value" for="wizard-avu-slider wizard-max-avu">1</output><input id="wizard-avu-slider" type="range" min="1" max="24" step="1" value="1"></label>
+          <label>Max AVU <output id="wizard-avu-value" for="wizard-avu-slider wizard-max-avu">1</output><input id="wizard-avu-slider" type="range" min="1" max="1" step="1" value="1"></label>
           <label>Exact Max AVU <input id="wizard-max-avu" type="number" min="1" step="1" value="1"></label>
-          <p class="wizard-help">The slider is an editing window, not a supported backend limit. Larger integer values can be entered precisely. The enhanced CI backend must validate effective limits.</p>
+          <p class="wizard-help">The slider uses the configured concurrency range. Enter a larger whole number precisely when no installation limit is configured. Admission limits must be checked before a real run.</p>
         </div>
         <label id="wizard-profile-points-label" hidden>Profile concurrency points <input id="wizard-profile-points" autocomplete="off" spellcheck="false"></label>
       </div>
       <details id="wizard-advanced"><summary>Advanced Settings</summary>
-        <p>Supported per-benchmark options use the existing HammerDB configuration names. Deployment settings and credentials remain operator-managed.</p>
+        <p>Optional benchmark settings use the installation’s native configuration names.</p>
         <div id="wizard-advanced-fields" class="wizard-grid"></div>
       </details>
       <label class="wizard-share"><input id="wizard-share-result" type="checkbox" checked> Share result to HammerDB leaderboard</label>
-      <p class="wizard-help">Successful canonical results can be prepared for the public community leaderboard through GitHub’s contribution workflow. This preview makes no GitHub changes; sharing awaits authorised backend support.</p>
+      <p class="wizard-help">Successful results can be contributed to the public community leaderboard through GitHub. In simulation mode, preparation is simulated and nothing is published.</p>
     </section>
     <section data-wizard-step="3" aria-labelledby="wizard-review-title" hidden>
       <h3 id="wizard-review-title" tabindex="-1">Review benchmark request</h3>
       <div id="wizard-review"></div>
       <details><summary>Proposed structured request (credentials redacted)</summary><pre id="wizard-request-json"></pre></details>
-      <p>No Pipeline or Job has been created. The authenticated enhanced <code>/cihook</code> adapter will validate the request and capture exact operation and Job IDs in Stage 2.</p>
-      <button type="button" id="wizard-preview">Preview execution</button>
+      <p>The next action runs a simulation only. Simulated Pipeline and Job IDs are labelled <code>SIM-</code>; they are not real benchmark results.</p>
+      <label>Test outcome <select id="wizard-scenario"><option value="success">Successful workflow</option><option value="rejection">Request rejected</option><option value="failure">Operation failure</option><option value="timeout">Status timeout and recovery</option><option value="partial">Partial profile results</option><option value="cleanup_failure">Cleanup failure after benchmark</option><option value="sharing_failure">Sharing failure after benchmark</option></select></label>
+      <div class="wizard-actions"><button type="button" id="wizard-preview">Start simulated run</button><button type="button" id="wizard-cancel" hidden>Cancel simulated run</button><button type="button" id="wizard-retry-status" hidden>Retry status</button></div>
       <p id="wizard-status" role="status" tabindex="-1"></p>
+      <section id="wizard-progress" aria-labelledby="wizard-progress-title" hidden>
+        <h4 id="wizard-progress-title">Simulated execution</h4>
+        <p id="wizard-pipeline-id"></p>
+        <ol id="wizard-operation-progress"></ol>
+        <div id="wizard-simulated-jobs"></div>
+        <p id="wizard-sharing-status"></p>
+        <a id="wizard-download" hidden download="hammerdb-simulated-result.json">Download simulated result JSON</a>
+      </section>
     </section>
     <div class="wizard-actions"><button type="button" id="wizard-back" hidden>Back</button><button type="button" id="wizard-next">Continue</button></div>
   </form>
 </section>
+<script src="%url($B/pipeline-wizard-mock.js)" defer></script>
 <script src="%url($B/pipeline-wizard.js)" defer></script>
         }
     }
