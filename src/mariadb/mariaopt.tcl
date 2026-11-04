@@ -8,6 +8,53 @@ proc maria_ssl_normalize_gui_fields {} {
     }
 }
 
+# Keep optional TLS file inputs out of the common one-way connection path.
+# Explicit CA and two-way settings remain available through the advanced toggle.
+proc maria_ssl_form_update {parent} {
+    global maria_ssl maria_ssl_two_way
+    if {![winfo exists $parent.c1.e2g]} {return}
+    set toggle $parent.c1.advanced
+    if {![winfo exists $toggle]} {
+        set capath ""
+        if {[string match windows $::tcl_platform(platform)]} {
+            if {[info exists ::maria_ssl_windows_capath]} {
+                set capath $::maria_ssl_windows_capath
+            }
+        } elseif {[info exists ::maria_ssl_linux_capath]} {
+            set capath $::maria_ssl_linux_capath
+        }
+        set ::maria_ssl_advanced($parent) [expr {
+            $maria_ssl_two_way eq "true" ||
+            ($capath ne "" && $capath ne "{}") ||
+            ([info exists ::maria_ssl_ca] &&
+                $::maria_ssl_ca ne "" && $::maria_ssl_ca ne "{}")
+        }]
+        ttk::checkbutton $toggle -text "Advanced TLS files" \
+            -variable ::maria_ssl_advanced($parent) \
+            -command [list maria_ssl_form_update $parent]
+        grid $toggle -column 2 -row 6 -sticky w -padx 8
+    }
+    set enabled [expr {$maria_ssl eq "true"}]
+    set expanded [expr {$enabled && $::maria_ssl_advanced($parent)}]
+    foreach part {2ba 2bb} {
+        $parent.c1.e$part configure -state [expr {$enabled ? "normal" : "disabled"}]
+    }
+    $toggle configure -state [expr {$enabled ? "normal" : "disabled"}]
+    foreach part {2c 2d 2e 2f 2g} {
+        set entry $parent.c1.e$part
+        set label $parent.c1.p$part
+        if {$expanded} {
+            grid $label
+            grid $entry
+            set available [expr {$part ni {2e 2f} || $maria_ssl_two_way eq "true"}]
+            $entry configure -state [expr {$available ? "normal" : "disabled"}]
+        } else {
+            grid remove $label
+            grid remove $entry
+        }
+    }
+}
+
 proc check_maria_ssl { configdict } {
 global maria_ssl_options maria_ssl_config
 upvar #0 configmariadb configmariadb
@@ -192,7 +239,7 @@ proc countmariaopts { bm } {
     set Name $Parent.c1.e2b
         set Prompt $Parent.c1.p2b
         ttk::label $Prompt -text "Enable SSL :"
-        ttk::checkbutton $Name -text "" -variable maria_ssl -onvalue "true" -offvalue "false"
+        ttk::checkbutton $Name -text "" -variable maria_ssl -onvalue "true" -offvalue "false" -command [list maria_ssl_form_update $Parent]
         grid $Prompt -column 0 -row 4 -sticky e
         grid $Name -column 1 -row 4 -sticky w
 
@@ -219,7 +266,7 @@ proc countmariaopts { bm } {
             }
 
 	    set Name $Parent.c1.e2ba
-        ttk::radiobutton $Name -value "false" -text "SSL One-Way" -variable maria_ssl_two_way
+        ttk::radiobutton $Name -value "false" -text "SSL One-Way" -variable maria_ssl_two_way -command [list maria_ssl_form_update $Parent]
         grid $Name -column 1 -row 5 -sticky w
         if { $maria_ssl eq "false" } {
                 .countopt.c1.e2ba configure -state disabled
@@ -232,7 +279,7 @@ proc countmariaopts { bm } {
         }
 
         set Name $Parent.c1.e2bb
-        ttk::radiobutton $Name -value "true" -text "SSL Two-Way" -variable maria_ssl_two_way
+        ttk::radiobutton $Name -value "true" -text "SSL Two-Way" -variable maria_ssl_two_way -command [list maria_ssl_form_update $Parent]
         grid $Name -column 1 -row 6 -sticky w
         if { $maria_ssl eq "false" } {
                 .countopt.c1.e2bb configure -state disabled
@@ -298,6 +345,8 @@ proc countmariaopts { bm } {
       if { $maria_ssl == "false" } {
             $Name configure -state disabled
         }
+
+    maria_ssl_form_update $Parent
 
     set Name $Parent.c1.e3
     set Prompt $Parent.c1.p3
@@ -495,7 +544,7 @@ proc configmariatpcc {option} {
  	set Name $Parent.c1.e2b
         set Prompt $Parent.c1.p2b
         ttk::label $Prompt -text "Enable SSL :"
-        ttk::checkbutton $Name -text "" -variable maria_ssl -onvalue "true" -offvalue "false"
+        ttk::checkbutton $Name -text "" -variable maria_ssl -onvalue "true" -offvalue "false" -command [list maria_ssl_form_update $Parent]
         grid $Prompt -column 0 -row 4 -sticky e
         grid $Name -column 1 -row 4 -sticky w
 
@@ -522,7 +571,7 @@ proc configmariatpcc {option} {
             }
 
 	set Name $Parent.c1.e2ba
-        ttk::radiobutton $Name -value "false" -text "SSL One-Way" -variable maria_ssl_two_way
+        ttk::radiobutton $Name -value "false" -text "SSL One-Way" -variable maria_ssl_two_way -command [list maria_ssl_form_update $Parent]
         grid $Name -column 1 -row 5 -sticky w
 	if { $maria_ssl eq "false" } {
                 .tpc.c1.e2ba configure -state disabled
@@ -535,7 +584,7 @@ proc configmariatpcc {option} {
         }
 
         set Name $Parent.c1.e2bb
-        ttk::radiobutton $Name -value "true" -text "SSL Two-Way" -variable maria_ssl_two_way
+        ttk::radiobutton $Name -value "true" -text "SSL Two-Way" -variable maria_ssl_two_way -command [list maria_ssl_form_update $Parent]
         grid $Name -column 1 -row 6 -sticky w
 	if { $maria_ssl eq "false" } {
                 .tpc.c1.e2bb configure -state disabled
@@ -601,6 +650,8 @@ proc configmariatpcc {option} {
       if { $maria_ssl == "false" } {
             $Name configure -state disabled
         }
+
+    maria_ssl_form_update $Parent
 
     set Name $Parent.c1.e3
     set Prompt $Parent.c1.p3
@@ -1044,7 +1095,7 @@ proc configmariatpch {option} {
      set Name $Parent.c1.e2b
         set Prompt $Parent.c1.p2b
         ttk::label $Prompt -text "Enable SSL :"
-        ttk::checkbutton $Name -text "" -variable maria_ssl -onvalue "true" -offvalue "false"
+        ttk::checkbutton $Name -text "" -variable maria_ssl -onvalue "true" -offvalue "false" -command [list maria_ssl_form_update $Parent]
         grid $Prompt -column 0 -row 4 -sticky e
         grid $Name -column 1 -row 4 -sticky w
 
@@ -1071,7 +1122,7 @@ proc configmariatpch {option} {
             }
 
   set Name $Parent.c1.e2ba
-        ttk::radiobutton $Name -value "false" -text "SSL One-Way" -variable maria_ssl_two_way
+        ttk::radiobutton $Name -value "false" -text "SSL One-Way" -variable maria_ssl_two_way -command [list maria_ssl_form_update $Parent]
         grid $Name -column 1 -row 5 -sticky w
         if { $maria_ssl eq "false" } {
                 .mytpch.c1.e2ba configure -state disabled
@@ -1084,7 +1135,7 @@ proc configmariatpch {option} {
         }
 
         set Name $Parent.c1.e2bb
-        ttk::radiobutton $Name -value "true" -text "SSL Two-Way" -variable maria_ssl_two_way
+        ttk::radiobutton $Name -value "true" -text "SSL Two-Way" -variable maria_ssl_two_way -command [list maria_ssl_form_update $Parent]
         grid $Name -column 1 -row 6 -sticky w
         if { $maria_ssl eq "false" } {
                 .mytpch.c1.e2bb configure -state disabled
@@ -1150,6 +1201,8 @@ proc configmariatpch {option} {
       if { $maria_ssl == "false" } {
             $Name configure -state disabled
         }
+
+    maria_ssl_form_update $Parent
 
     set Name $Parent.c1.e3
     set Prompt $Parent.c1.p3
@@ -1439,7 +1492,7 @@ proc metmariaopts {} {
     set Name $Parent.c1.e2b
     set Prompt $Parent.c1.p2b
     ttk::label $Prompt -text "Enable SSL :"
-    ttk::checkbutton $Name -text "" -variable maria_ssl -onvalue "true" -offvalue "false"
+    ttk::checkbutton $Name -text "" -variable maria_ssl -onvalue "true" -offvalue "false" -command [list maria_ssl_form_update $Parent]
     grid $Prompt -column 0 -row 4 -sticky e
     grid $Name -column 1 -row 4 -sticky w
 
@@ -1466,7 +1519,7 @@ proc metmariaopts {} {
     }
 
     set Name $Parent.c1.e2ba
-    ttk::radiobutton $Name -value "false" -text "SSL One-Way" -variable maria_ssl_two_way
+    ttk::radiobutton $Name -value "false" -text "SSL One-Way" -variable maria_ssl_two_way -command [list maria_ssl_form_update $Parent]
     grid $Name -column 1 -row 5 -sticky w
     if { $maria_ssl eq "false" } {
         .metric.c1.e2ba configure -state disabled
@@ -1479,7 +1532,7 @@ proc metmariaopts {} {
     }
 
     set Name $Parent.c1.e2bb
-    ttk::radiobutton $Name -value "true" -text "SSL Two-Way" -variable maria_ssl_two_way
+    ttk::radiobutton $Name -value "true" -text "SSL Two-Way" -variable maria_ssl_two_way -command [list maria_ssl_form_update $Parent]
     grid $Name -column 1 -row 6 -sticky w
     if { $maria_ssl eq "false" } {
         .metric.c1.e2bb configure -state disabled
@@ -1544,6 +1597,8 @@ proc metmariaopts {} {
     if { $maria_ssl == "false" } {
         $Name configure -state disabled
     }
+
+    maria_ssl_form_update $Parent
 
     set Name $Parent.c1.e3
     set Prompt $Parent.c1.p3
