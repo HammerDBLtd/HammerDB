@@ -1,3 +1,13 @@
+# A literal "{}" is a legacy GUI value, not an empty Tcl argument.
+# Normalize it when a MariaDB connection form loads, without discarding any
+# explicitly configured certificate filename or CA directory.
+proc maria_ssl_normalize_gui_fields {} {
+    foreach name {maria_ssl_linux_capath maria_ssl_windows_capath maria_ssl_ca maria_ssl_cert maria_ssl_key} {
+        upvar 1 $name field
+        if {[info exists field] && $field eq "{}"} {set field ""}
+    }
+}
+
 proc check_maria_ssl { configdict } {
 global maria_ssl_options maria_ssl_config
 upvar #0 configmariadb configmariadb
@@ -5,6 +15,10 @@ upvar #0 configmariadb configmariadb
 foreach key [ dict keys [ dict get $configdict connection ] *ssl* ] {
 set $key [ dict get $configdict connection $key ]
 	}
+# Normalize the legacy literal-brace placeholder before testing TLS options.
+foreach name {maria_ssl_linux_capath maria_ssl_windows_capath maria_ssl_ca maria_ssl_cert maria_ssl_key} {
+    if {[info exists $name] && [set $name] eq "{}"} {set $name ""}
+}
 #Use correct directory
 if {![string match windows $::tcl_platform(platform)]} {
 set capath $maria_ssl_linux_capath
@@ -19,7 +33,9 @@ return
 set maria_ssl_config $current_ssl_config
 unset -nocomplain maria_ssl_options
 #Allow one-way TLS without explicit CA/certificate files when CApath is also blank
-set no_ssl_files [ expr {$maria_ssl_ca eq "" && $maria_ssl_cert eq "" && $maria_ssl_key eq ""} ]
+# For one-way TLS, legacy client certificate/key values are irrelevant.
+# Only CA and CApath control whether an explicit trust file is requested.
+set no_ssl_files [ expr {$maria_ssl_ca eq "" && ($maria_ssl_two_way ne "true" || ($maria_ssl_cert eq "" && $maria_ssl_key eq ""))} ]
 if { $maria_ssl eq "true" && $maria_ssl_two_way ne "true" && $no_ssl_files && $capath eq "" } {
 set maria_ssl_options " -ssl true "
 if { $maria_ssl_cipher != "server" } { append maria_ssl_options " -sslcipher $maria_ssl_cipher " }
@@ -111,6 +127,7 @@ proc countmariaopts { bm } {
             set tcstamp $tc_log_timestamps
     }}
     setlocaltcountvars $configmariadb 1 
+    maria_ssl_normalize_gui_fields
     variable mariaoptsfields 
     if { $bm eq "TPC-C" } {
    if {![string match windows $::tcl_platform(platform)]} {
@@ -412,6 +429,7 @@ proc configmariatpcc {option} {
 
     #set variables to values in dict
     setlocaltpccvars $configmariadb
+    maria_ssl_normalize_gui_fields
     set tpccfields [ dict create tpcc {maria_user {.tpc.c1.e3 get} maria_pass {.tpc.c1.e4 get} maria_dbase {.tpc.c1.e5 get} maria_storage_engine {.tpc.f1.e6 get} maria_total_iterations {.tpc.f1.e14 get} maria_rampup {.tpc.f1.e17 get} maria_duration {.tpc.f1.e18 get} maria_async_client {.tpc.f1.e22 get} maria_async_delay {.tpc.f1.e23 get} maria_count_ware $maria_count_ware maria_num_vu $maria_num_vu maria_partition $maria_partition maria_driver $maria_driver maria_raiseerror $maria_raiseerror maria_keyandthink $maria_keyandthink maria_allwarehouse $maria_allwarehouse maria_timeprofile $maria_timeprofile maria_async_scale $maria_async_scale maria_async_verbose $maria_async_verbose maria_prepared $maria_prepared maria_no_stored_procs $maria_no_stored_procs maria_connect_pool $maria_connect_pool maria_history_pk $maria_history_pk maria_purge $maria_purge} ]
     if {![string match windows $::tcl_platform(platform)]} {
         set platform "lin"
@@ -961,6 +979,7 @@ proc configmariatpch {option} {
 
     #set variables to values in dict
     setlocaltpchvars $configmariadb
+    maria_ssl_normalize_gui_fields
     set tpchfields [ dict create tpch {maria_tpch_user {.mytpch.c1.e3 get} maria_tpch_pass {.mytpch.c1.e4 get} maria_tpch_dbase {.mytpch.c1.e5 get} maria_tpch_storage_engine {.mytpch.f1.e6 get} maria_total_querysets {.mytpch.f1.e9 get} maria_update_sets {.mytpch.f1.e13 get} maria_trickle_refresh {.mytpch.f1.e14 get} maria_scale_fact $maria_scale_fact  maria_num_tpch_threads $maria_num_tpch_threads maria_refresh_on $maria_refresh_on maria_raise_query_error $maria_raise_query_error maria_verbose $maria_verbose maria_refresh_verbose $maria_refresh_verbose maria_cloud_query $maria_cloud_query} ]
     #set matching fields in dialog to temporary dict
        if {![string match windows $::tcl_platform(platform)]} {
@@ -1349,6 +1368,7 @@ proc metmariaopts {} {
     upvar #0 configmariadb configmariadb
 
     setlocaltcountvars $configmariadb 1
+    maria_ssl_normalize_gui_fields
 
     variable mariaoptsfields
     if { $bm eq "TPC-C" } {
