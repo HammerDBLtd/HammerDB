@@ -34,6 +34,7 @@ proc maria_ssl_form_update {parent} {
             -command [list maria_ssl_form_update $parent]
         grid $toggle -column 2 -row 6 -sticky w -padx 8
     }
+    if {$maria_ssl_two_way eq "true"} {set ::maria_ssl_advanced($parent) 1}
     set enabled [expr {$maria_ssl eq "true"}]
     set expanded [expr {$enabled && $::maria_ssl_advanced($parent)}]
     foreach part {2ba 2bb} {
