@@ -6,7 +6,7 @@ proc tk_messageBox {args} {
     error "Unexpected MariaDB TLS configuration error: $args"
 }
 proc assert_option {expected label} {
-    set actual [string trim $::maria_ssl_options]
+    set actual [join [regexp -all -inline {\\S+} $::maria_ssl_options] " "]
     if {$actual ne $expected} {
         error "$label: expected '$expected', got '$actual'"
     }
