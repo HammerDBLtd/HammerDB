@@ -16,7 +16,7 @@ proc ttk::toplevel {w args} {
 proc ed_start_gui { dbdict icons iconalt } {
     global _ED rdbms bm ed_mainf tcl_platform succ fail vus repeat task run clo masterthread table opmode masterlist autopilot apmode win_scale_fact treewidth tabix tabiy mainx mainy mainminx mainminy mainmaxx mainmaxy treebuild pop_treel defaultBackground
     set opmode "Local"
-    ttk::toplevel .ed_mainFrame
+    ttk::toplevel .ed_mainFrame -class HammerDBDesktop
     wm withdraw .ed_mainFrame
     wm title .ed_mainFrame "HammerDB"
     wm geometry .ed_mainFrame +100+100
@@ -3744,7 +3744,7 @@ proc wsstatus {} {
     } else {
         set wsenv [ strip_html [ http::data $tok ]]
         if {[ lindex [ split $wsenv "\n" ] 0 ] eq "Service Environment"} {
-            after 100 [list tk_messageBox -message "Web Service running: $wsenv"]
+            after 100 [list tk_messageBox -title "Web Service Status" -message "Web Service running on port $ws_port.\n\nFull diagnostics are available on the web service Environment page."]
         } else {
             after 100 [list tk_messageBox -message "Web Service output error: $wsenv"]
         }
