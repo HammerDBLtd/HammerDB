@@ -1,0 +1,225 @@
+# Provider prerequisites are exercised with deterministic fake build tools.
+# No database or network service is contacted by this test.
+package require tcltest
+namespace import ::tcltest::*
+set root [file dirname [file dirname [file normalize [info script]]]]
+foreach f {src/postgresql/pgci.tcl src/mysql/mysqlci.tcl src/mariadb/mariaci.tcl src/villagesql/vsqlci.tcl} {
+    source [file join $root $f]
+}
+proc putsci {message} { lappend ::messages $message }
+proc ci_latest_id {ref} {return 5}
+proc find_prefix {db} {return mysql}
+proc ci_collect_ash_for_ref {ref} {return $::collect_ash}
+proc hdbjobs {args} {return 0}
+proc calc_buffer_pool_mb {} {return 128}
+proc calc_redo_mb {} {return 256}
+proc numberOfCPUs {} {return 4}
+proc handle_output {pipe} {
+    append ::server_output [read $pipe]
+    if {[eof $pipe]} {
+        fileevent $pipe readable {}
+        catch {close $pipe}
+        set ::pipe_done 1
+    }
+}
+proc handle_test_output {pipe doneVar} {
+    append ::server_output [read $pipe]
+    if {[eof $pipe]} {
+        fileevent $pipe readable {}
+        set $doneVar 1
+    }
+}
+proc write_fixture {path body {executable 0}} {
+    file mkdir [file dirname $path]
+    set f [open $path w]
+    puts $f $body
+    close $f
+    if {$executable} {file attributes $path -permissions 0755}
+    return $path
+}
+proc read_fixture {path} {
+    set f [open $path r]
+    try {return [read $f]} finally {close $f}
+}
+set fixture_dir [makeDirectory ashproviders]
+set previous_path $::env(PATH)
+set ::env(PATH) "[file join $fixture_dir tools]:$::env(PATH)"
+set ::env(ASH_TEST_LOG) [file join $fixture_dir commands.log]
+write_fixture [file join $fixture_dir tools cmake] {#!/bin/sh
+printf '%s\n' "$*" >> "$ASH_TEST_LOG"
+case "$*" in
+  *--build*) exit 0 ;;
+  *) if [ "${ASH_TEST_FAIL_CONFIGURE:-0}" = 1 ]; then exit 17; fi ;;
+esac
+} 1
+write_fixture [file join $fixture_dir tools sudo] {#!/bin/sh
+if [ "$1" = -n ]; then shift; fi
+exec env -u HAMMERDB_ASH "$@"
+} 1
+
+foreach {provider database} {mysql MySQL mariadb MariaDB} {
+    test ashproviders-build-$provider {ASH build forces engine ON and executes the configured build} -setup {
+        set collect_ash 1
+        set rdbms $database
+        file delete -force $::env(ASH_TEST_LOG)
+        file mkdir [file join $fixture_dir builds ci_5_tag]
+        set cidict [dict create $rdbms [dict create build [dict create build_dir [file join $fixture_dir builds] \
+            build_cmd {cmake . -DWITH_PERFSCHEMA_STORAGE_ENGINE=OFF ; cmake --build .}]]]
+    } -body {
+        set status [${provider}_build $cidict tag]
+        set commands [read_fixture $::env(ASH_TEST_LOG)]
+        list $status [regexp -- {-DWITH_PERFSCHEMA_STORAGE_ENGINE=ON} $commands] \
+            [regexp -- {PERFSCHEMA_STORAGE_ENGINE=OFF} $commands] [regexp -- {--build} $commands]
+    } -result {{BUILD SUCCEEDED} 1 0 1}
+
+    test ashproviders-failed-configure-$provider {a failed ASH configure cannot be masked by a subsequent build} -setup {
+        set collect_ash 1
+        set rdbms $database
+        set ::env(ASH_TEST_FAIL_CONFIGURE) 1
+        file delete -force $::env(ASH_TEST_LOG)
+    } -body {
+        set status [${provider}_build $cidict tag]
+        list $status [regexp -- {--build} [read_fixture $::env(ASH_TEST_LOG)]]
+    } -cleanup {
+        unset ::env(ASH_TEST_FAIL_CONFIGURE)
+    } -result {{BUILD FAILED} 0}
+
+    test ashproviders-disabled-$provider {disabled ASH leaves an existing OFF configuration unchanged} -setup {
+        set collect_ash 0
+        set rdbms $database
+        file delete -force $::env(ASH_TEST_LOG)
+    } -body {
+        set status [${provider}_build $cidict tag]
+        list $status [regexp -- {PERFSCHEMA_STORAGE_ENGINE=OFF} [read_fixture $::env(ASH_TEST_LOG)]]
+    } -result {{BUILD SUCCEEDED} 1}
+
+    test ashproviders-start-$provider {the started server receives the required Performance Schema flag} -setup {
+        set collect_ash 1
+        set rdbms $database
+        set binary [expr {$provider eq "mysql" ? "mysqld" : "mariadbd"}]
+        set directory [file join $fixture_dir installs ci_5_tag $provider-fixture]
+        write_fixture [file join $directory bin $binary] {#!/bin/sh
+printf '%s\n' "$*" >> "$ASH_TEST_LOG"
+echo SERVER_STARTED
+} 1
+        set defaults [write_fixture [file join $directory test.cnf] {[mysqld]}]
+        set cidict [dict create $rdbms [dict create install [dict create \
+            install_dir [file join $fixture_dir installs] defaults_file $defaults \
+            start_cmd bin/$binary start_args {defaults_file basedir datadir socket} \
+            datadir data socket /tmp/hammerdb-test.sock]]]
+        file delete -force $::env(ASH_TEST_LOG)
+        set server_output ""
+    } -body {
+        set status [${provider}_start $cidict tag]
+        list $status [regexp -- {--performance-schema=ON} [read_fixture $::env(ASH_TEST_LOG)]]
+    } -result {{START SUCCEEDED} 1}
+}
+
+foreach {provider database} {postgresql PostgreSQL mysql MySQL mariadb MariaDB} {
+    test ashproviders-sudo-capture-$provider {ASH reaches the CLI even when sudo removes inherited variables} -setup {
+        set collect_ash 1
+        set rdbms $database
+        set ::env(HAMMERDB_ASH) 1
+        set script [write_fixture [file join $fixture_dir runner.sh] {#!/bin/sh
+printf 'ASH:%s\n' "${HAMMERDB_ASH:-unset}"
+} 1]
+        set cidict [dict create common [dict create use_sudo true] \
+            $rdbms [dict create test [dict create oltp $script]]]
+        set server_output ""
+    } -body {
+        set status [${provider}_start_tests $cidict tag oltp]
+        list $status [string match {*ASH:1*} $server_output]
+    } -cleanup {
+        unset ::env(HAMMERDB_ASH)
+    } -result {{TEST COMPLETE} 1}
+}
+
+test ashproviders-villagesql {VillageSQL shares the MySQL prerequisite implementation} -body {
+    list [interp alias {} villagesql_build] [interp alias {} villagesql_start]
+} -result {mysql_build mysql_start}
+
+test ashproviders-pg-preload {PostgreSQL preserves existing libraries and uses pinned extension's supported GUCs} -setup {
+    set pg_dir [file join $fixture_dir {postgres '$` quoted}]
+    set data_dir [file join $pg_dir data]
+    write_fixture [file join $pg_dir bin postgres] {#!/bin/sh
+printf '%s\n' 'existing_library,pg_stat_statements'
+} 1
+    write_fixture [file join $data_dir postgresql.conf] {work_mem = '4MB'}
+} -body {
+    postgresql_configure_ash $pg_dir $data_dir
+    set config [read_fixture [file join $data_dir postgresql.conf]]
+    list [string match {*work_mem = '4MB'*} $config] \
+        [string match {*shared_preload_libraries = 'existing_library,pg_stat_statements,pgsentinel'*} $config] \
+        [string match {*pgsentinel_ash.sampling_period = 1*} $config] \
+        [string match {*pgsentinel_pgssh.enable = true*} $config] \
+        [string match {*pull_frequency*} $config]
+} -result {1 1 1 1 0}
+
+test ashproviders-pg-missing-config {ASH install fails when the matching pg_config is unavailable} -body {
+    catch {postgresql_install_ash [file join $fixture_dir source] [file join $fixture_dir missing]} error
+    set error
+} -result {matching installed pg_config is unavailable}
+
+test ashproviders-pg-install {both mandatory extensions build against this pipeline's exact installed PostgreSQL} -setup {
+    set source_dir [file join $fixture_dir pgsource]
+    set basedir [file join $fixture_dir pginstall]
+    file mkdir [file join $source_dir contrib pg_stat_statements]
+    write_fixture [file join $source_dir contrib pg_stat_statements Makefile] {# fixture}
+    write_fixture [file join $basedir bin pg_config] [string map \
+        [list @LIBDIR@ [file join $basedir lib] @SHAREDIR@ [file join $basedir share]] {#!/bin/sh
+case "$1" in
+ --pkglibdir) printf '%s\n' '@LIBDIR@' ;;
+ --sharedir) printf '%s\n' '@SHAREDIR@' ;;
+ *) exit 23 ;;
+esac
+}] 1
+    foreach extension {pg_stat_statements pgsentinel} {
+        write_fixture [file join $basedir lib $extension.so] fixture
+        write_fixture [file join $basedir share extension $extension.control] fixture
+    }
+    write_fixture [file join $fixture_dir tools git] {#!/bin/sh
+printf 'git %s\n' "$*" >> "$ASH_TEST_LOG"
+if [ "$1" = init ]; then mkdir -p "$2"; exit 0; fi
+if [ "$1" = -C ]; then shift 2; fi
+case "$1" in
+ rev-parse) printf '%s\n' '145e73f738821b1fe36575c728635dd7aba26a6a' ;;
+ status|fetch|checkout) exit 0 ;;
+ *) exit 29 ;;
+esac
+} 1
+    write_fixture [file join $fixture_dir tools make] {#!/bin/sh
+printf 'make %s\n' "$*" >> "$ASH_TEST_LOG"
+if [ "${ASH_TEST_FAIL_MAKE:-0}" = 1 ]; then exit 19; fi
+} 1
+    file delete -force $::env(ASH_TEST_LOG)
+} -body {
+    postgresql_install_ash $source_dir $basedir
+    set commands [read_fixture $::env(ASH_TEST_LOG)]
+    list [string match {*fetch --depth 1 https://github.com/pgsentinel/pgsentinel.git 145e73f738821b1fe36575c728635dd7aba26a6a*} $commands] \
+        [expr {[regexp -all -- "PG_CONFIG=[file join $basedir bin pg_config]" $commands] == 5}] \
+        [string match {*pg_stat_statements*install*} $commands]
+} -result {1 1 1}
+
+test ashproviders-pg-install-failure {a prerequisite compiler failure stops installation immediately} -setup {
+    set ::env(ASH_TEST_FAIL_MAKE) 1
+    file delete -force $::env(ASH_TEST_LOG)
+} -body {
+    set failed [catch {postgresql_install_ash $source_dir $basedir} message]
+    list $failed [regexp -- {git } [read_fixture $::env(ASH_TEST_LOG)]]
+} -cleanup {
+    unset ::env(ASH_TEST_FAIL_MAKE)
+} -result {1 0}
+
+test ashproviders-pg-install-missing-extension {missing installed extension artifacts are a hard prerequisite failure} -setup {
+    file delete [file join $basedir lib pgsentinel.so]
+} -body {
+    catch {postgresql_install_ash $source_dir $basedir} message
+    set message
+} -result {required ASH extension pgsentinel was not installed}
+
+set ::env(PATH) $previous_path
+unset ::env(ASH_TEST_LOG)
+removeDirectory $fixture_dir
+set failed $::tcltest::numTests(Failed)
+cleanupTests
+exit [expr {$failed > 0}]

@@ -1,0 +1,17 @@
+.hdb-ash { max-width: 100%; padding: 1rem; color: inherit; }
+.hdb-ash-status { padding: .75rem; border-left: .25rem solid #4c78a8; background: color-mix(in srgb, currentColor 5%, transparent); }
+.hdb-ash-controls { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem; }
+.hdb-ash-controls label { display: grid; gap: .25rem; }
+.hdb-ash button, .hdb-ash input { font: inherit; padding: .4rem .6rem; }
+.hdb-ash-chart { min-height: 12rem; border: 1px solid #8886; }
+.hdb-ash-chart svg { display: block; width: 100%; min-height: 12rem; touch-action: none; user-select: none; }
+.hdb-ash-chart text { fill: currentColor; font: 12px sans-serif; }
+.hdb-ash-legend { display: flex; flex-wrap: wrap; gap: .75rem; margin: .75rem 0; }
+.hdb-ash-legend span { padding-left: .5rem; border-left: .75rem solid; }
+.hdb-ash-details { display: grid; gap: 1rem; }
+.hdb-ash-details section { min-width: 0; }
+.hdb-ash-scroll { overflow-x: auto; }
+.hdb-ash table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.hdb-ash th, .hdb-ash td { padding: .5rem; border-bottom: 1px solid #8886; text-align: left; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hdb-ash-sql { white-space: pre-wrap; overflow-wrap: anywhere; }
+.hdb-ash-limitations { line-height: 1.5; }

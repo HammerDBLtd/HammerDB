@@ -1,0 +1,557 @@
+# Recorded native samples exercise the desktop SQL through the replay dialect
+# adapter. No database sampler, Tk, browser calculations or live DB is involved.
+package require tcltest 2
+namespace import ::tcltest::*
+package require sqlite3
+source [file join [file dirname [info script]] .. modules ashreplay-1.0.tm]
+
+namespace eval ::ashreplaytest {
+    variable base [clock scan {2026-11-05 12:00:00} -timezone UTC]
+
+    proc value {row name} {
+        dict for {key val} $row {
+            if {[string equal -nocase $key $name]} {return $val}
+        }
+        error "Missing result column $name"
+    }
+
+    proc where {rows column wanted} {
+        foreach row $rows {
+            if {[value $row $column] eq $wanted} {return $row}
+        }
+        error "Missing expected result row"
+    }
+
+    proc meta {{timezone UTC}} {
+        variable base
+        return [dict create server_timezone $timezone server_now [expr {$base+15}] \
+            run_start $base run_end [expr {$base+15}] bucket_secs 15 driver_cpucount 8 \
+            source_collation binary]
+    }
+
+    proc window {{start 0} {end 15} args} {
+        variable base
+        return [dict merge [dict create begin [expr {$base+$start}] end [expr {$base+$end}]] $args]
+    }
+
+    proc pgrow {offset pid queryid type event {backend {client backend}} {text {SELECT 1}}} {
+        variable base
+        set epoch [expr {$base+$offset}]
+        return [dict create ash_time [clock format [expr {int($epoch)}] -timezone UTC -format {%Y-%m-%d %H:%M:%S}] \
+            _epoch $epoch pid $pid queryid $queryid query $text cmdtype SELECT \
+            usename bench application_name HammerDB wait_event_type $type \
+            wait_event $event backend_type $backend xact_start [expr {$epoch-1}]]
+    }
+
+    proc myrow {offset pid digest type event {text {SELECT 1}}} {
+        variable base
+        set epoch [expr {$base+$offset}]
+        return [dict create ash_time [clock format [expr {int($epoch)}] -timezone UTC -format {%Y-%m-%d %H:%M:%S}] \
+            _epoch $epoch processlist_id $pid digest $digest digest_text $text \
+            sql_text $text user bench host localhost command Query \
+            wait_event_type $type wait_event $event]
+    }
+
+    proc pgsamples {} {
+        return [list [pgrow -1 99 q9 CPU CPU] [pgrow 0 10 q1 CPU CPU] \
+            [pgrow 5 10 q1 IO DataFileRead] \
+            [pgrow 10 20 q2 CPU CPU {autovacuum worker}] \
+            [pgrow 15 20 q2 Lock transactionid] [pgrow 16 99 q9 CPU CPU]]
+    }
+
+    proc mysamples {} {
+        return [list [myrow -1 99 d9 CPU CPU] [myrow 0 10 d1 CPU CPU] \
+            [myrow 5 10 d1 wait/io/file/innodb/innodb_data_file read] \
+            [myrow 10 20 d2 wait/synch/mutex/innodb/buf_pool_mutex lock] \
+            [myrow 15 20 d2 wait/lock/table/sql/handler lock] [myrow 16 99 d9 CPU CPU]]
+    }
+
+    proc stats {queryid calls} {
+        set row [dict create queryid $queryid calls $calls total_exec_time 90.25 rows 11]
+        foreach key {shared_blks_hit shared_blks_read shared_blks_dirtied shared_blks_written \
+            local_blks_hit local_blks_read local_blks_dirtied local_blks_written \
+            temp_blks_read temp_blks_written blk_read_time blk_write_time plans \
+            total_plan_time wal_records wal_fpi wal_bytes} {dict set row $key 0}
+        return $row
+    }
+
+    proc mystats {digest calls poll} {
+        set row [dict create digest $digest digest_text {SELECT 1} count_star $calls \
+            sum_timer_wait 0 _poll_epoch $poll]
+        foreach column {sum_rows_affected sum_rows_sent sum_rows_examined sum_created_tmp_tables \
+            sum_created_tmp_disk_tables sum_select_scan sum_select_full_join sum_sort_rows sum_no_index_used} {
+            dict set row $column 0
+        }
+        return $row
+    }
+
+    proc native_ci {row} {
+        # Fixture values are recorded native comparison keys; the replay must
+        # consume them rather than derive comparison rules from the name.
+        foreach column {sql_text wait_event command user host digest digest_text wait_event_type} {
+            dict set row _collation_$column captured_fixture_ci
+            dict set row _weight_$column [binary encode hex [encoding convertto utf-8 [string tolower [dict get $row $column]]]]
+            dict set row _pad_$column {NO PAD}
+        }
+        return $row
+    }
+
+    proc desktop_window {database begid endid begday begsec endday endsec} {
+        set provider [::ashreplay::_provider $database]
+        set child [dict get $provider interp]
+        set ns [dict get $provider namespace]
+        interp eval $child {namespace eval ::ashreplay {}}
+        interp alias $child ::ashreplay::window {} ::ashreplay::window
+        interp eval $child {package provide ashreplay 1.0}
+        interp eval $child [list proc ${ns}::mon_execute {cursor} {set ::executed_cursor $cursor}]
+        interp eval $child [list array set sample_id [list 0 $begid 1 $endid]]
+        interp eval $child [list array set ash_day [list 0 $begday 1 $endday]]
+        interp eval $child [list array set ash_sec [list 0 $begsec 1 $endsec]]
+        interp eval $child [list ${ns}::ash_details 0 1]
+        return [interp eval $child {
+            dict create native_begin $public(ash,beg) native_end $public(ash,end) \
+                begcnt $public(ash,begcnt) endcnt $public(ash,endcnt) sesdelta $public(ash,sesdelta) \
+                cursor $::executed_cursor
+        }]
+    }
+}
+
+test ashreplay-source-1 {Authoritative PostgreSQL SQL is retained verbatim for inspection} -body {
+    set sql [::ashreplay::original_sql pg ash]
+    list [string match {*pg_active_session_history*} $sql] \
+        [string match {*autovacuum worker*} $sql] \
+        [string match {*max(ash_time)over()-min(ash_time)over()*} $sql]
+} -result {1 1 1}
+
+test ashreplay-source-2 {MySQL-family replay retains the actual desktop instrumentation tables} -body {
+    set result {}
+    foreach db {mysql maria vsql} {
+        lappend result [string match {*hammerdb_ash.active_session_history*} [::ashreplay::original_sql $db ash]]
+        lappend result [string match {*events_statements_summary_by_digest*} [::ashreplay::original_sql $db ash_sqlstats]]
+    }
+    set result
+} -result {1 1 1 1 1 1}
+
+test ashreplay-pg-window-1 {Selected SQL activity includes both exact window boundaries} -body {
+    set rows [::ashreplay::query pg ash_sqldetails [::ashreplaytest::pgsamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window]]
+    set q1 [::ashreplaytest::where $rows QueryID q1]
+    set q2 [::ashreplaytest::where $rows QueryID q2]
+    list [llength $rows] [::ashreplaytest::value $q1 Total] \
+        [::ashreplaytest::value $q1 CPU] [::ashreplaytest::value $q1 IO] \
+        [::ashreplaytest::value $q2 Total] [::ashreplaytest::value $q2 BCPU] \
+        [::ashreplaytest::value $q2 CPU] [::ashreplaytest::value $q2 Lock]
+} -result {2 2 1 1 2 1 1 1}
+
+test ashreplay-pg-window-2 {One exact timestamp remains a valid selected window} -body {
+    set rows [::ashreplay::query pg ash_sqldetails [::ashreplaytest::pgsamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window 5 5]]
+    list [llength $rows] [::ashreplaytest::value [lindex $rows 0] Total] \
+        [::ashreplaytest::value [lindex $rows 0] IO]
+} -result {1 1 1}
+
+test ashreplay-pg-session-1 {Session breakdowns use the canonical grouping and category sums} -body {
+    set rows [::ashreplay::query pg ash_sqlsessions [::ashreplaytest::pgsamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window]]
+    set session [::ashreplaytest::where $rows pid 20]
+    list [llength $rows] [::ashreplaytest::value $session Total] \
+        [::ashreplaytest::value $session BCPU] [::ashreplaytest::value $session Lock] \
+        [::ashreplaytest::value $session usename]
+} -result {2 2 1 1 bench}
+
+test ashreplay-pg-event-1 {Selected event counts preserve native names and classes} -body {
+    set rows [::ashreplay::query pg ash_sqlevents [::ashreplaytest::pgsamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window]]
+    set io [::ashreplaytest::where $rows wait_event DataFileRead]
+    list [llength $rows] [::ashreplaytest::value $io total] [::ashreplaytest::value $io wait_event_type]
+} -result {3 1 IO}
+
+test ashreplay-mysql-window-1 {All three MySQL-family adapters preserve categories and inclusive selection} -body {
+    set result {}
+    foreach db {mysql maria vsql} {
+        set rows [::ashreplay::query $db ash_sqldetails [::ashreplaytest::mysamples] {} \
+            [::ashreplaytest::meta] [::ashreplaytest::window]]
+        set d1 [::ashreplaytest::where $rows QueryID d1]
+        set d2 [::ashreplaytest::where $rows QueryID d2]
+        lappend result [list [llength $rows] [::ashreplaytest::value $d1 Total] \
+            [::ashreplaytest::value $d1 CPU] [::ashreplaytest::value $d1 File_IO] \
+            [::ashreplaytest::value $d2 Mutex] [::ashreplaytest::value $d2 Lock]]
+    }
+    set result
+} -result {{2 2 1 1 1 1} {2 2 1 1 1 1} {2 2 1 1 1 1}}
+
+test ashreplay-pg-chart-1 {PostgreSQL chart keeps background CPU classification and native span divisor} -body {
+    set rows [::ashreplay::query pg ash [::ashreplaytest::pgsamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window]]
+    set background [::ashreplaytest::where $rows wait_event_type BCPU]
+    list [::ashreplaytest::value $background wait_event_type] \
+        [expr {abs([::ashreplaytest::value $background AAS] - 0.067) < 0.0001}]
+} -result {BCPU 1}
+
+test ashreplay-mysql-chart-1 {MySQL categories are produced by the unchanged desktop CASE expression} -body {
+    set rows [::ashreplay::query mysql ash [::ashreplaytest::mysamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window]]
+    set found {}
+    foreach row $rows {lappend found [::ashreplaytest::value $row wait_event_type]}
+    lsort -unique $found
+} -result {CPU File_IO Lock Mutex}
+
+test ashreplay-mysql-chart-2 {The desktop MySQL zero-span divisor is one, regardless of chart bucket} -body {
+    set samples [list [::ashreplaytest::myrow 5 10 d1 CPU CPU]]
+    set rows [::ashreplay::query mysql ash $samples {} [::ashreplaytest::meta] \
+        [::ashreplaytest::window]]
+    list [llength $rows] [expr {[::ashreplaytest::value [lindex $rows 0] AAS] == 1.0}]
+} -result {1 1}
+
+test ashreplay-chart-buckets-1 {Chart rows retain server-day seconds and the original aligned bucket bounds} -body {
+    set result {}
+    foreach db {pg mysql} sampleproc {pgsamples mysamples} eventclass {IO File_IO} dayoffset {2440588 719528} {
+        set day [expr {int(floor($::ashreplaytest::base/86400.0))+$dayoffset}]
+        set rows [::ashreplay::query $db ash [::ashreplaytest::$sampleproc] {} \
+            [::ashreplaytest::meta] [::ashreplaytest::window]]
+        set row [::ashreplaytest::where $rows wait_event_type $eventclass]
+        lappend result [list [expr {[::ashreplaytest::value $row secs] == 43205}] \
+            [expr {[::ashreplaytest::value $row sample_id] == $::ashreplaytest::base+5}] \
+            [expr {[::ashreplaytest::value $row beg_secs] == 43200}] \
+            [expr {[::ashreplaytest::value $row end_secs] == 43215}] \
+            [expr {[::ashreplaytest::value $row first_day] == $day}]]
+    }
+    set result
+} -result {{1 1 1 1 1} {1 1 1 1 1}}
+
+test ashreplay-dst-1 {Recorded epochs distinguish identical server clock times across a DST change} -body {
+    set first [clock scan {2026-11-01 05:30:00} -timezone UTC]
+    set second [expr {$first+3600}]
+    set old [::ashreplaytest::pgrow 0 101 q1 CPU CPU]
+    set recent [::ashreplaytest::pgrow 0 102 q2 CPU CPU]
+    dict set old ash_time {2026-11-01 01:30:00}
+    dict set old _epoch $first
+    dict set recent ash_time {2026-11-01 01:30:00}
+    dict set recent _epoch $second
+    set metadata [dict merge [::ashreplaytest::meta America/New_York] \
+        [dict create run_start $first run_end $second server_now $second]]
+    set rows [::ashreplay::query pg ash_sqldetails [list $old $recent] {} $metadata \
+        [dict create begin $second end $second]]
+    list [llength $rows] [::ashreplaytest::value [lindex $rows 0] QueryID] \
+        [::ashreplaytest::value [lindex $rows 0] Total]
+} -result {1 q2 1}
+
+test ashreplay-timezone-1 {Chart seconds use the captured server timezone rather than the process timezone} -body {
+    set rows [::ashreplay::query pg ash [::ashreplaytest::pgsamples] {} \
+        [::ashreplaytest::meta America/New_York] [::ashreplaytest::window]]
+    set io [::ashreplaytest::where $rows wait_event_type IO]
+    list [expr {[dict get $io secs] == 25205}] [expr {[dict get $io beg_secs] == 25200}] \
+        [expr {[dict get $io sample_id] == $::ashreplaytest::base+5}]
+} -result {1 1 1}
+
+test ashreplay-timezone-2 {An unrecorded server timezone is rejected before replay} -body {
+    set metadata [dict remove [::ashreplaytest::meta] server_timezone]
+    ::ashreplay::query pg ash_sqlevents {} {} $metadata [::ashreplaytest::window]
+} -returnCodes error -match glob -result {*timezone*}
+
+test ashreplay-null-1 {Native SQL NULL and an empty event name remain separate groups} -body {
+    set empty [::ashreplaytest::pgrow 1 10 q1 IO {}]
+    set null [dict merge [::ashreplaytest::pgrow 2 10 q1 IO {}] [dict create _nulls wait_event]]
+    set rows [::ashreplay::query pg ash_sqlevents [list $empty $null] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window]]
+    list [llength $rows] [dict get [lindex $rows 0] total] [dict get [lindex $rows 1] total]
+} -result {2 1 1}
+
+test ashreplay-null-2 {An empty native digest satisfies IS NOT NULL while a NULL digest does not} -body {
+    set empty [::ashreplaytest::myrow 1 10 {} CPU CPU]
+    set null [dict merge [::ashreplaytest::myrow 2 10 {} CPU CPU] [dict create _nulls digest]]
+    set rows [::ashreplay::query mysql ash_sqldetails [list $empty $null] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window]]
+    list [llength $rows] [dict get [lindex $rows 0] total] [dict get [lindex $rows 0] queryid]
+} -result {1 1 {}}
+
+test ashreplay-collation-1 {Missing native MySQL comparison keys fail explicitly} -body {
+    set metadata [dict replace [::ashreplaytest::meta] source_collation unknown]
+    ::ashreplay::query mysql ash_sqlevents [::ashreplaytest::mysamples] {} $metadata [::ashreplaytest::window]
+} -returnCodes error -match glob -result {*collation*not captured*}
+
+test ashreplay-collation-2 {Recorded native comparison keys control text grouping} -body {
+    set rows {}
+    foreach event {Read read} offset {1 2} {
+        lappend rows [::ashreplaytest::native_ci [::ashreplaytest::myrow $offset 10 d1 IO $event]]
+    }
+    set metadata [dict replace [::ashreplaytest::meta] source_collation captured_fixture_ci]
+    set result [::ashreplay::query mysql ash_sqlevents $rows {} $metadata [::ashreplaytest::window]]
+    list [llength $result] [dict get [lindex $result 0] total]
+} -result {1 2}
+
+test ashreplay-pg-text-1 {SQL text retains desktop latest-transaction behavior beyond the selected window} -body {
+    set text {SELECT '雪', 'quote''', '\\backslash'}
+    set samples [list [::ashreplaytest::pgrow 1 10 q1 CPU CPU {client backend} old] \
+        [::ashreplaytest::pgrow 16 10 q1 CPU CPU {client backend} $text]]
+    set rows [::ashreplay::query pg ash_sqltxt $samples {} [::ashreplaytest::meta] \
+        [::ashreplaytest::window 0 5 sql_id q1]]
+    expr {[::ashreplaytest::value [lindex $rows 0] query] eq $text}
+} -result 1
+
+test ashreplay-mysql-text-1 {MySQL text retains latest-sample behavior and UTF text exactly} -body {
+    set text {SELECT '雪', 'quote''', '\\backslash'}
+    set samples [list [::ashreplaytest::myrow 1 10 d1 CPU CPU old] \
+        [::ashreplaytest::myrow 16 10 d1 CPU CPU $text]]
+    set rows [::ashreplay::query mysql ash_sqltxt $samples {} [::ashreplaytest::meta] \
+        [::ashreplaytest::window 0 5 sql_id d1]]
+    expr {[::ashreplaytest::value [lindex $rows 0] sql_text] eq $text}
+} -result 1
+
+test ashreplay-pg-stats-1 {Statistics retain desktop highest-call history selection and native counters} -body {
+    set stats [list [::ashreplaytest::stats q1 2] [::ashreplaytest::stats q1 5] \
+        [::ashreplaytest::stats q2 99]]
+    set rows [::ashreplay::query pg ash_sqlstats [::ashreplaytest::pgsamples] $stats \
+        [::ashreplaytest::meta] [::ashreplaytest::window 0 15 sql_id q1]]
+    list [llength $rows] [::ashreplaytest::value [lindex $rows 0] calls] \
+        [::ashreplaytest::value [lindex $rows 0] total_exec_time]
+} -result {1 5 90.25}
+
+test ashreplay-mysql-stats-1 {Native digest counters use the desktop conversion and highest-call row} -body {
+    set stats [dict create DIGEST d1 DIGEST_TEXT {SELECT 1} COUNT_STAR 10 \
+        SUM_TIMER_WAIT 45000000000 SUM_ROWS_AFFECTED 8 SUM_ROWS_SENT 9 SUM_ROWS_EXAMINED 11 \
+        SUM_CREATED_TMP_TABLES 2 SUM_CREATED_TMP_DISK_TABLES 1 SUM_SELECT_SCAN 3 \
+        SUM_SELECT_FULL_JOIN 4 SUM_SORT_ROWS 5 SUM_NO_INDEX_USED 6]
+    set rows [::ashreplay::query mysql ash_sqlstats [::ashreplaytest::mysamples] \
+        [list $stats] [::ashreplaytest::meta] [::ashreplaytest::window 0 15 sql_id d1]]
+    set row [lindex $rows 0]
+    list [llength $rows] [::ashreplaytest::value $row calls] \
+        [expr {[::ashreplaytest::value $row total_exec_time] == 45.0}] \
+        [::ashreplaytest::value $row rows_examined] [::ashreplaytest::value $row no_index_used]
+} -result {1 10 1 11 6}
+
+test ashreplay-mysql-stats-2 {Missing native digest statistics use the existing ASH fallback count} -body {
+    set rows [::ashreplay::query mysql ash_sqlstats [::ashreplaytest::mysamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window 0 15 sql_id d1]]
+    set row [lindex $rows 0]
+    list [llength $rows] [::ashreplaytest::value $row calls] \
+        [::ashreplaytest::value $row total_exec_time]
+} -result {1 2 0}
+
+test ashreplay-mysql-stats-3 {The latest complete snapshot permits native resets and digest eviction} -body {
+    set first [expr {$::ashreplaytest::base+1}]
+    set last [expr {$::ashreplaytest::base+2}]
+    set old [::ashreplaytest::mystats d1 10 $first]
+    set reset [::ashreplaytest::mystats d1 7 $last]
+    set evicted [dict replace [::ashreplaytest::mystats d2 30 $last] digest_text {SELECT 2}]
+    set result {}
+    foreach stats [list [list $old $reset] [list $old $evicted]] {
+        set rows [::ashreplay::query mysql ash_sqlstats [::ashreplaytest::mysamples] $stats \
+            [::ashreplaytest::meta] [::ashreplaytest::window 0 15 sql_id d1]]
+        lappend result [dict get [lindex $rows 0] calls]
+    }
+    set metadata [dict merge [::ashreplaytest::meta] [dict create stats_poll_epoch [expr {$last+1}]]]
+    set rows [::ashreplay::query mysql ash_sqlstats [::ashreplaytest::mysamples] [list $old] \
+        $metadata [::ashreplaytest::window 0 15 sql_id d1]]
+    lappend result [dict get [lindex $rows 0] calls]
+    set result
+} -result {7 2 2}
+
+test ashreplay-pg-overtime-1 {SQL-over-time retains its strict start predicate and native event classes} -body {
+    set rows [::ashreplay::query pg sqlovertimeload [::ashreplaytest::pgsamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window 0 15 sql_id q1]]
+    list [llength $rows] [::ashreplaytest::value [lindex $rows 0] wait_event_type] \
+        [::ashreplaytest::value [lindex $rows 0] cnt] \
+        [expr {[::ashreplaytest::value [lindex $rows 0] last_id] == $::ashreplaytest::base+5}]
+} -result {1 IO 1 1}
+
+test ashreplay-mysql-overtime-1 {MySQL SQL-over-time retains its native wait-class mapping} -body {
+    set rows [::ashreplay::query mysql sqlovertimeload [::ashreplaytest::mysamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window 0 15 sql_id d1]]
+    list [llength $rows] [::ashreplaytest::value [lindex $rows 0] wait_event_type] \
+        [::ashreplaytest::value [lindex $rows 0] cnt] \
+        [expr {[::ashreplaytest::value [lindex $rows 0] last_id] == $::ashreplaytest::base+5}]
+} -result {1 File_IO 1 1}
+
+test ashreplay-eventsqls-1 {Event-specific SQL drill-down uses its exact selected window} -body {
+    set rows [::ashreplay::query pg ash_eventsqls [::ashreplaytest::pgsamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window 0 15 event_id DataFileRead]]
+    list [llength $rows] [::ashreplaytest::value [lindex $rows 0] total] \
+        [::ashreplaytest::value [lindex $rows 0] wait_event]
+} -result {1 1 DataFileRead}
+
+test ashreplay-sql-injection-1 {SQL identifiers are bound values, never executable predicate text} -body {
+    set rows [::ashreplay::query pg ash_sqltxt [::ashreplaytest::pgsamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window 0 15 sql_id {q1' OR 1=1 --}]]
+    llength $rows
+} -result 0
+
+test ashreplay-event-injection-1 {Event names are bound values, never executable predicates} -body {
+    set rows [::ashreplay::query mysql ash_eventsqls [::ashreplaytest::mysamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window 0 15 event_id {read' OR 1=1 --}]]
+    llength $rows
+} -result 0
+
+test ashreplay-invalid-window-1 {Reversed historical selections are rejected explicitly} -body {
+    ::ashreplay::query pg ash_sqlevents [::ashreplaytest::pgsamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window 15 0]
+} -returnCodes error -match glob -result {*}
+
+test ashreplay-native-window-1 {Real desktop callbacks and shared bounds retain native midnight semantics} -body {
+    set begin [clock scan {2026-11-05 23:59:55} -timezone UTC]
+    set end [expr {$begin+10}]
+    set results {}
+    foreach db {pg mysql maria} origin {2440588 719528 719528} {
+        set day [expr {$begin/86400+$origin}]
+        set next [expr {$day+1}]
+        set bounds [::ashreplay::window $db $begin $end $day 86390 $next 10 UTC]
+        set callback [::ashreplaytest::desktop_window $db $begin $end $day 86390 $next 10]
+        set same 1
+        foreach column {native_begin native_end begcnt endcnt sesdelta} {
+            if {[dict get $bounds $column] ne [dict get $callback $column]} {set same 0}
+        }
+        if {$db eq "pg"} {
+            set correct [expr {[dict get $bounds native_begin] eq "$day 86390" &&
+                [dict get $bounds native_end] eq "$next 00010" &&
+                [dict get $bounds begin] == $begin-5 && [dict get $bounds end] == $end+5}]
+        } else {
+            set correct [expr {[dict get $bounds native_begin] == $begin-1 &&
+                [dict get $bounds native_end] == $end && [dict get $bounds begin] == $begin-1}]
+        }
+        lappend results [list $same $correct [dict get $callback cursor] [dict get $bounds sesdelta] [dict get $bounds delta]]
+    }
+    set results
+} -result {{1 1 ash_sqldetails 13620 10} {1 1 ash_sqldetails 13620 10} {1 1 ash_sqldetails 13620 10}}
+
+test ashreplay-native-window-2 {PostgreSQL J/SSSS parsing selects the later occurrence of a repeated local hour} -body {
+    set first [clock scan {2026-11-01 05:30:00} -timezone UTC]
+    set second [expr {$first+3600}]
+    set day [expr {$first/86400+2440588}]
+    set bounds [::ashreplay::window pg $first [expr {$first+15}] $day 5400 $day 5415 America/New_York]
+    list [expr {[dict get $bounds begin] == $second}] \
+        [expr {[dict get $bounds end] == $second+15}] \
+        [expr {[dict get $bounds begin_sample_id] == $first}]
+} -result {1 1 1}
+
+test ashreplay-native-delta-1 {The desktop denominator uses sample-ID delta with bucket fallback at zero} -body {
+    list [::ashreplay::delta 100 110 15] [::ashreplay::delta 100 100 15] \
+        [::ashreplay::percent session 3 8] [::ashreplay::percent session 3 8.0] \
+        [::ashreplay::percent sql 1 3] [::ashreplay::percent event 1 3]
+} -result {10 15 { 37} { 38} 33 33.3}
+
+test ashreplay-selection-1 {Native bucket endpoints select shared bounds with the provider's sample-ID rules} -body {
+    set result {}
+    foreach db {pg mysql maria} origin {2440588 719528 719528} {
+        set day [expr {$::ashreplaytest::base/86400+$origin}]
+        set rows [list [dict create first_day $day last_day $day beg_secs 43200 end_secs 43215 \
+            sample_id [expr {$::ashreplaytest::base+5}]] \
+            [dict create first_day $day last_day $day beg_secs 43215 end_secs 43230 \
+            sample_id [expr {$::ashreplaytest::base+20}]]]
+        set bounds [::ashreplay::selection $db $rows UTC [expr {$::ashreplaytest::base+1}] \
+            [expr {$::ashreplaytest::base+29}]]
+        set expected [::ashreplay::window $db [expr {$::ashreplaytest::base+5}] \
+            [expr {$::ashreplaytest::base+20}] $day 43200 $day 43230 UTC]
+        lappend result [expr {$bounds eq $expected}]
+    }
+    set result
+} -result {1 1 1}
+
+test ashreplay-selection-2 {Desktop midnight endpoint normalization advances the native day once} -body {
+    set epoch [clock scan {2026-11-05 23:59:59} -timezone UTC]
+    set day [expr {$epoch/86400+2440588}]
+    set rows [list [dict create first_day $day last_day $day beg_secs 86385 end_secs 86400 sample_id $epoch]]
+    set bounds [::ashreplay::selection pg $rows UTC [expr {$epoch-13}] $epoch]
+    list [dict get $bounds native_begin] [dict get $bounds native_end] \
+        [expr {[dict get $bounds begin] == $epoch-14}] [expr {[dict get $bounds end] == $epoch+1}]
+} -result {{2461350 86385} {2461351 00000} 1 1}
+
+test ashreplay-report-1 {Report exposes canonical rows and explicit unavailable live-plan limitation} -body {
+    set report [::ashreplay::report pg [::ashreplaytest::pgsamples] {} \
+        [::ashreplaytest::meta] [::ashreplaytest::window]]
+    list [dict exists $report chart] [dict exists $report sql] \
+        [dict exists $report sessions] [dict exists $report events] \
+        [string match {*plans*live*} [join [dict get $report limitations]]]
+} -result {1 1 1 1 1}
+
+test ashreplay-report-2 {Report exposes selected canonical drill-down rows together} -body {
+    set report [::ashreplay::report pg [::ashreplaytest::pgsamples] \
+        [list [::ashreplaytest::stats q1 2]] [::ashreplaytest::meta] \
+        [::ashreplaytest::window 0 15 sql_id q1 event_id DataFileRead session_id 10]]
+    list [dict get $report sql_text] \
+        [::ashreplaytest::value [lindex [dict get $report sql_stats] 0] calls] \
+        [llength [dict get $report event_sqls]] \
+        [::ashreplaytest::value [lindex [dict get $report sql_overtime] 0] wait_event_type] \
+        [::ashreplaytest::value [lindex [dict get $report session_details] 0] pid] \
+        [dict get $report driver_cpucount]
+} -result {{SELECT 1} 2 1 IO 10 8}
+
+test ashreplay-report-3 {Captured chart context retains all native rows and adds browser coordinates} -body {
+    set chart {}
+    set day [expr {$::ashreplaytest::base/86400+2440588}]
+    foreach offset {-1 0 15 16} {
+        lappend chart [dict create _poll_epoch [expr {$::ashreplaytest::base+$offset}] \
+            sample_id [expr {$::ashreplaytest::base+$offset}] wait_event_type IO aas 0.125 \
+            first_day $day last_day $day beg_secs [expr {43200+$offset}] end_secs [expr {43215+$offset}]]
+    }
+    set metadata [dict merge [::ashreplaytest::meta] [dict create chart_rows $chart]]
+    set report [::ashreplay::report pg [::ashreplaytest::pgsamples] {} $metadata \
+        [::ashreplaytest::window]]
+    set actual [dict get $report chart]
+    set preserved 1
+    foreach expected $chart row $actual {
+        if {[dict remove $row begin end category] ne $expected ||
+            [dict get $row category] ne "IO" ||
+            [dict get $row begin] != [dict get $row sample_id] ||
+            [dict get $row end] != [dict get $row sample_id]+15} {set preserved 0}
+    }
+    list [llength $actual] $preserved
+} -result {4 1}
+
+test ashreplay-report-4 {SQL text history outside the selection supplies latest text and native MySQL fallback} -body {
+    set text {SELECT 'outside window', '雪', '\\path'}
+    set result {}
+    foreach db {pg mysql} {
+        if {$db eq "pg"} {
+            set selected [list [::ashreplaytest::pgrow 5 10 q1 IO DataFileRead {client backend} selected]]
+            set history [list [::ashreplaytest::pgrow 1 10 q1 CPU CPU {client backend} old] \
+                {*}$selected [::ashreplaytest::pgrow 16 10 q1 CPU CPU {client backend} $text]]
+            set stats [list [::ashreplaytest::stats q1 2]]
+            set id q1
+        } else {
+            set selected [list [::ashreplaytest::myrow 5 10 d1 wait/io/file/innodb/data read selected]]
+            set history [list [::ashreplaytest::myrow 1 10 d1 CPU CPU old] \
+                {*}$selected [::ashreplaytest::myrow 16 10 d1 CPU CPU $text]]
+            set stats {}
+            set id d1
+        }
+        set metadata [dict merge [::ashreplaytest::meta] [dict create sql_text_rows $history chart_rows {}]]
+        set report [::ashreplay::report $db $selected $stats $metadata \
+            [::ashreplaytest::window 5 5 sql_id $id]]
+        lappend result [list [expr {[dict get $report sql_text] eq $text}] \
+            [dict get [lindex [dict get $report sql] 0] total] \
+            [dict get [lindex [dict get $report sql_stats] 0] calls]]
+    }
+    set result
+} -result {{1 1 2} {1 1 3}}
+
+test ashreplay-report-5 {Identical local chart coordinates retain distinct epochs across DST fall-back} -body {
+    set first [clock scan {2026-11-01 05:30:00} -timezone UTC]
+    set second [expr {$first+3600}]
+    set day [expr {$first/86400+2440588}]
+    set chart {}
+    foreach id [list $first $second] {
+        lappend chart [dict create first_day $day last_day $day beg_secs 5400 end_secs 5415 \
+            sample_id $id wait_event_type IO aas 0.5]
+    }
+    set metadata [dict merge [::ashreplaytest::meta America/New_York] \
+        [dict create run_start $first run_end $second server_now $second chart_rows $chart]]
+    set report [::ashreplay::report pg {} {} $metadata [dict create begin $first end $second]]
+    set rows [dict get $report chart]
+    list [llength $rows] [expr {[dict get [lindex $rows 0] begin] == $first}] \
+        [expr {[dict get [lindex $rows 1] begin] == $second}] \
+        [expr {[dict get [lindex $rows 1] end] == $second+15}]
+} -result {2 1 1 1}
+
+test ashreplay-report-6 {Session percentages use selected sample IDs rather than the native timestamp span} -body {
+    set options [dict merge [::ashreplaytest::window] \
+        [dict create begin_sample_id [expr {$::ashreplaytest::base+5}] \
+        end_sample_id [expr {$::ashreplaytest::base+15}]]]
+    set metadata [dict merge [::ashreplaytest::meta] [dict create chart_rows {}]]
+    set report [::ashreplay::report pg [::ashreplaytest::pgsamples] {} $metadata $options]
+    set session [::ashreplaytest::where [dict get $report sessions] pid 10]
+    string trim [dict get $session percent]
+} -result 20
+
+set ::ashreplaytest::failed $::tcltest::numTests(Failed)
+cleanupTests
+if {$::ashreplaytest::failed} {exit 1}
