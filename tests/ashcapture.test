@@ -1,6 +1,6 @@
 # Real coordinator/native provider worker tests with recorded connector responses.
 # No benchmark database is contacted; sampler and monitor code are production code.
-package require Tcl 8.6
+package require Tcl 8.6-
 package require tcltest
 namespace import ::tcltest::*
 set root [file dirname [file dirname [file normalize [info script]]]]

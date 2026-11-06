@@ -64,11 +64,21 @@ async function main() {
       assert.ok(Array.isArray(report[field]), `${field} must be a JSON array`);
       // Shares are calculated by the desktop helper outside its SQL cursor;
       // compare every native projection independently of Jobs report assembly.
-      const rows = report[field].map(({percent, ...row}) => row);
+      const rows = report[field].map(({percent, group, ...row}) => {
+        if (field === 'events') assert.equal(group, row.wait_event_type, 'PG event group differs from native wait type');
+        return row;
+      });
       assert.deepEqual(rows, expected[field], `${field} differs from the desktop cursor for this exact window`);
     }
     for (const field of ['sql_stats', 'sql_overtime', 'event_sqls', 'sql_text']) {
-      if (Object.hasOwn(expected, field)) assert.deepEqual(report[field], expected[field], `${field} differs from its desktop cursor`);
+      if (Object.hasOwn(expected, field)) {
+        const actual = field === 'sql_overtime' ? report[field].map(({aas, category, ...row}) => {
+          assert.equal(category, row.wait_event_type);
+          assert.ok(Number.isFinite(Number(aas)));
+          return row;
+        }) : report[field];
+        assert.deepEqual(actual, expected[field], `${field} differs from its desktop cursor`);
+      }
     }
     return expected;
   }
@@ -106,8 +116,8 @@ async function main() {
         await page.mouse.move(x(.93), box.y + box.height * .55, {steps: 8});
         await page.mouse.up();
       });
-      assert.ok(url.searchParams.has('pointer_begin') && url.searchParams.has('pointer_end'), 'drag must send pointer coordinates for shared desktop window resolution');
-      assert.ok(Number(url.searchParams.get('pointer_begin')) < Number(url.searchParams.get('pointer_end')));
+      assert.ok(url.searchParams.has('pointerbegin') && url.searchParams.has('pointerend'), 'drag must send pointer coordinates for shared desktop window resolution');
+      assert.ok(Number(url.searchParams.get('pointerbegin')) < Number(url.searchParams.get('pointerend')));
       assert.ok(Number.isFinite(report.begin) && Number.isFinite(report.end) && report.begin <= report.end);
       assert.notDeepEqual(report.sql, initial.sql, 'drag did not change the selected sample population');
       assert.deepEqual(report.sql.map(row => row.queryid), ['q3']);

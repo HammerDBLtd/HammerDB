@@ -100,6 +100,13 @@ test ashstore-chart-order-1 {archive preserves native chart order instead of sor
     ashstore::append db one chart $records
     lmap row [ashstore::rows db one chart] {dict get $row sample_id}
 } -result {101 106}
+test ashstore-native-null-1 {native NULL and empty text remain distinct archive rows} -body {
+    fresh
+    ashstore::begin db one pg {run_start 100}
+    set empty [dict create _epoch 101 ash_time 101 pid 10 query {} _nulls {}]
+    set null [dict replace $empty _nulls query]
+    ashstore::append db one samples [list $empty $null]
+} -result 2
 catch {db close}
 set failed $::tcltest::numTests(Failed)
 cleanupTests

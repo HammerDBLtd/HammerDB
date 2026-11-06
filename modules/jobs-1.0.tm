@@ -60,7 +60,8 @@ namespace eval jobs {
         [dict get $metadata server_timezone] [dict get $options pointer_begin] [dict get $options pointer_end]]
       set options [dict merge $options $window]
     }
-    set begin [expr {max($first,$last-900.0)}]
+    set bucket [::ashstore::getfirst $metadata {bucket_secs} 15]
+    set begin [expr {max($first,$last-$bucket)}]
     set end $last
     if {[dict exists $options begin]} {set begin [dict get $options begin]}
     if {[dict exists $options end]} {set end [dict get $options end]}
@@ -99,7 +100,7 @@ namespace eval jobs {
   proc ash_report_json {report} {
     set pairs {}
     foreach {key value} $report {
-      if {$key in {chart sql sessions events sql_stats event_sqls sql_overtime session_details}} {
+      if {$key in {chart sql sessions events sql_stats sql_statistics event_sqls sql_overtime session_details}} {
         set items {}
         foreach row $value {
           set fields {}
@@ -2808,7 +2809,7 @@ proc wapp-page-jobs {} {
         wapp-mimetype {application/json; charset=utf-8}
         wapp-reply-extra Cache-Control {no-store}
         set options {}
-        foreach {parameter key} {begin begin end end pointer_begin pointer_begin pointer_end pointer_end sqlid sql_id eventid event_id sessionid session_id} {
+        foreach {parameter key} {begin begin end end pointerbegin pointer_begin pointerend pointer_end sqlid sql_id eventid event_id sessionid session_id} {
             if {[wapp-param-exists $parameter]} {dict set options $key [wapp-param $parameter]}
         }
         if {[catch {ash_report $jobid $options} report]} {

@@ -195,7 +195,7 @@
         if (id !== undefined) {selection.sql_id = id; load();}
       });
       table('Session activity', report.sessions, row => {sqlText.textContent = JSON.stringify(row, null, 2);});
-      table('SQL statistics (captured snapshots)', report.sql_stats);
+      table('SQL statistics (captured snapshots)', report.sql_statistics?.length ? report.sql_statistics : report.sql_stats);
       table('SQL statements for selected event', report.event_sqls);
       table('SQL activity over time', report.sql_overtime);
       if (report.sql_text) sqlText.textContent = report.sql_text;
@@ -208,7 +208,7 @@
       active = new AbortController();
       const current = ++generation;
       const url = new URL(source);
-      const parameters = {begin: 'begin', end: 'end', pointer_begin: 'pointer_begin', pointer_end: 'pointer_end', sql_id: 'sqlid', event_id: 'eventid'};
+      const parameters = {begin: 'begin', end: 'end', pointer_begin: 'pointerbegin', pointer_end: 'pointerend', sql_id: 'sqlid', event_id: 'eventid'};
       for (const [key, value] of Object.entries(selection)) url.searchParams.set(parameters[key], String(value));
       const deadline = setTimeout(() => active?.abort(), 30000);
       try {
