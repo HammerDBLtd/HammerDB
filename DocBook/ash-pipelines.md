@@ -133,7 +133,7 @@ It needs Playwright and Chromium; set `CHROMIUM_EXECUTABLE_PATH` or
 service, not a production launcher.
 
 For a completed native archive, run `tclsh tests/ash-offline.tcl captured-jobs.db
-JOBID`. This uses a read-only SQLite backup, runs the actual Jobs report path,
+JOBID`. This snapshots the read-only SQLite source with `VACUUM INTO`, runs the actual Jobs report path,
 and leaves the source archive unchanged. It can run with networking disabled
 and without native database-client libraries. This check passed with the
 captured PostgreSQL and MariaDB archives after collection completed.

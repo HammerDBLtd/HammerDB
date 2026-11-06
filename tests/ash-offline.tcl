@@ -13,8 +13,9 @@ set channel [file tempfile copy_path]
 close $channel
 try {
     sqlite3 archived $archive -readonly 1
-    # SQLite backup includes committed WAL data and leaves the archive untouched.
-    archived backup $copy_path
+    # VACUUM INTO creates a consistent snapshot including committed WAL data.
+    # The source remains read-only; the destination is our empty temporary file.
+    archived eval {VACUUM INTO $copy_path}
     archived close
     sqlite3 ::jobs::hdbjobs $copy_path
     ::ashstore::init ::jobs::hdbjobs
