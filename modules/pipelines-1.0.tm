@@ -1077,8 +1077,8 @@ wapp-subst "<label style='cursor:pointer;'><input type='radio' name='bench' valu
 wapp-subst "<label style='cursor:pointer;'><input type='radio' name='bench' value='c_profile'$bench_c_profile onchange=\"document.getElementById('workload_hidden').value='C';document.getElementById('pipeline_hidden').value='profile';\"> Profile</label>"
 wapp-subst "<label style='cursor:pointer;'><input type='radio' name='bench' value='c_compare'$bench_c_compare onchange=\"document.getElementById('workload_hidden').value='C';document.getElementById('pipeline_hidden').value='compare';\"> Compare</label>"
 wapp-subst "<label style='cursor:pointer; margin-left:14px;'><input type='checkbox' name='io_intensive' value='1'$io_intensive_checked> Full Durability + I/O intensive</label>"
-        wapp-subst "<label style='display:block; margin:12px 0; cursor:pointer;'><input type='checkbox' name='collect_ash' value='1' form='runform'$collect_ash_checked> Active Session History (ASH)</label>"
 wapp-subst {</div>}
+wapp-subst "<label style='display:block; margin:8px 0 8px 96px; cursor:pointer;'><input type='checkbox' name='collect_ash' value='1' form='runform'$collect_ash_checked> ASH Metrics</label>"
 
 # TPROC-H
 wapp-subst {<div style='display:flex; gap:18px; align-items:center; margin-top:8px;'>}
