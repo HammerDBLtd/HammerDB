@@ -1,7 +1,10 @@
 # ASH in Pipelines and Jobs
 
-Development branch: `feature/6.2-ash`, based on the existing 6.2 Web Service
-development branch. This work is independent of the paused MCP integration.
+Development branch: `feature/6.2-ash`, based directly on `master`.
+Target: databases built and started by HammerDB Pipelines on Linux EC2 hosts.
+Amazon RDS, the deferred Stage 1 wizard, and the MCP integration are out of scope.
+The previous wizard work is preserved separately on
+`feature/6.2-deferred-wizard-rds`; it is not included in this branch.
 
 ## Governing reuse map
 
@@ -98,8 +101,7 @@ Database build/compiler boundaries in the provider tests are explicit fixtures.
 
 Run each Tcl test with a suitable interpreter and the native SQLite/Thread
 packages. Request/JSON tests require Tcl 9; the capture tests also support
-Tcl 8.6. Each test file exits nonzero on failure. Existing Pipelines, wizard
-configuration and JavaScript suites remain regression checks.
+Tcl 8.6. Each test file exits nonzero on failure. Existing Pipelines tests remain regression checks.
 
 Final verification on Linux with Tcl 9.0.1:
 
@@ -111,8 +113,8 @@ Final verification on Linux with Tcl 9.0.1:
 | `ashproviders.test` | 17 | 0 / 0 |
 | `ashrunner.test` | 24 | 0 / 0 |
 | `ashpipeline.test` | 49 | 0 / 0 |
-| Existing `pipelines.test` / `wizardconfig.test` | 35 | 0 / 0 |
-| Existing JavaScript planning/mock suites | 71 | 0 / 0 |
+| Existing `pipelines.test` / `wizardconfig.test` on the original combined branch | 35 | 0 / 0 |
+| Existing JavaScript wizard suites on the original combined branch | 71 | 0 / 0 |
 | Chromium Jobs/ASH integration checks | 6 | 0 / 0 |
 
 The browser checks cover real mouse selection, SQL/event/session drill-downs,
@@ -151,8 +153,63 @@ Standalone MySQL and VillageSQL servers have not been live-validated; fixtures
 and shared-path checks are not evidence of independent live server support.
 No production database, external credentials or upstream repository was used.
 Full desktop GUI interaction has not been manually regression-tested on Windows.
+These are reported Codex validation results from the original combined branch;
+run the commands below again on the cleaned EC2 ASH branch.
 
 Historical SQL plans remain unavailable: the existing desktop plan action is
 disabled/live-dependent and no plan was captured. Native nondeterministic
 collations or missing comparison metadata that cannot be reproduced faithfully
 raise an explicit error; replay never substitutes approximate grouping.
+
+## EC2 acceptance procedure (clean ASH branch)
+
+1. On a disposable Linux EC2 test host, check out `feature/6.2-ash` and
+   verify its diff against `master` contains only the ASH implementation.
+   Use an isolated test database and appropriate build tools and permissions.
+2. Ensure HammerDB's Tcl 9, SQLite, Thread, database drivers and CLI / Web
+   Service are installed. Run the focused tests from the repository root:
+
+   ```sh
+   for test in ashstore ashcapture ashreplay ashproviders ashrunner ashpipeline; do
+     tclsh9.0 "tests/$test.test" || exit 1
+   done
+   ```
+
+3. For the browser exercise, install Playwright and Chromium in your test
+   environment, then run the local **synthetic-data** fixture in one terminal:
+
+   ```sh
+   tclsh9.0 tests/ashjobs-server.tcl 8097 /tmp/ash-browser-jobs.db
+   ```
+
+   In another terminal:
+
+   ```sh
+   node tests/ashjobs.browser.js http://127.0.0.1:8097 /tmp/ash-browser-artifacts
+   ```
+
+   Confirm the drag-selected window, event and SQL drilldowns, session
+   selection, SQL-over-time chart, and saved-history reopening. The browser
+   tests run against synthetic samples, not a live provisioned server.
+4. Start the HammerDB Pipeline listener / Web Service using the host's
+   normal EC2 configuration. In **Pipelines > Run Benchmark**, choose a
+   PostgreSQL or MariaDB target, select **ASH Metrics** independently of I/O,
+   and execute a short **Single TPROC-C** run. The previous pipeline form uses
+   the label **Active Session History (ASH)**; both name the same option.
+   Verify the server actually starts with PostgreSQL preloads or MySQL-family
+   `performance_schema=ON` and `event_scheduler=ON`, as applicable.
+   Capture must begin before workload execution and fail visibly if its
+   prerequisite cannot be enabled; it must not silently skip ASH.
+5. Open the finished benchmark **Job > ASH** link. Check that sample counts,
+   wait and SQL breakdowns, selected session details, SQL-over-time chart and
+   drag-selection all update correctly. Reopen the same Job without a running
+   database and confirm the saved view still works from the Jobs SQLite file.
+   Ensure ASH tables are absent from exported benchmark reports/artifacts.
+6. Repeat with ASH unchecked and I/O on, then I/O off and ASH on, to confirm
+   independence. Repeat the selected ASH runs for Profile and Compare. Only
+   after these pass, test against standalone MySQL and VillageSQL servers:
+   they share existing provider paths but remain unverified live targets.
+
+Note: SQL plans are not retained by the existing historical capture; the
+Desktop's original EXPLAIN action requires a running database. This is an
+explicit limit of offline historical replay, not an alternate SQL planner.
