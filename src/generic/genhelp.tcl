@@ -373,9 +373,12 @@ Changed commandline:keepalive_margin from 10 to 60 for generic"
                     putscli "Shows whether the CI listener and watcher are running."
                 }
                 cipush {
-                    putscli "cipush - Usage: cipush refname"
+                    putscli {cipush - Usage: cipush refname ?pipeline? ?workload? ?dbprefix? ?io_intensive? ?collect_ash?}
+                    putscli "Defaults: single C <current database> 0 0. collect_ash=1 enables ASH for each benchmark job."
+                    putscli "ASH supports pg, mysql, maria and vsql and requires persistent Jobs storage."
                     putscli "Simulates a GitHub webhook push for a ref, e.g.:"
                     putscli "  cipush refs/tags/mariadb-12.2.1"
+                    putscli "  cipush refs/tags/REL_18_1 profile C pg 0 1"
                 }
                 ciset {
                     putscli "ciset - Usage: ciset top section key value"

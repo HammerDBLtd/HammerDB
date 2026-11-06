@@ -1,0 +1,117 @@
+# Exercise actual child-process exit statuses in the production CI runners.
+# No database server, network, mocked pipe close or mocked process status is used.
+package require tcltest 2
+namespace import ::tcltest::*
+package require sqlite3
+set root [file dirname [file dirname [file normalize [info script]]]]
+proc putsci {message} {lappend ::runner_messages $message}
+proc putscli {message} {lappend ::runner_messages $message}
+
+# Profile and Compare define private helpers inside their orchestration procs.
+# Evaluate the original complete Tcl declaration so these tests execute the
+# actual helper without cloning/building a database server first.
+proc load_declaration {text name} {
+    set declaration ""
+    set found 0
+    foreach line [split $text \n] {
+        if {!$found && [string match "proc $name *" [string trimleft $line]]} {set found 1}
+        if {$found} {
+            append declaration $line \n
+            if {[info complete $declaration]} {
+                uplevel #0 $declaration
+                return $name
+            }
+        }
+    }
+    error "Production procedure $name was not found"
+}
+proc load_runner_helper {outer name} {load_declaration [info body $outer] $name}
+set channel [open [file join $root src generic genci.tcl]]
+set ci_source [read $channel]
+close $channel
+foreach name {ci_latest_id ci_collect_ash_for_ref handle_test_output cisteps} {
+    load_declaration $ci_source $name
+}
+foreach directory {postgresql mysql mariadb villagesql} file {pgci.tcl mysqlci.tcl mariaci.tcl vsqlci.tcl} {
+    source [file join $root src $directory $file]
+}
+
+set directory [makeDirectory ashrunner]
+set runner [file join $directory runner.sh]
+set channel [open $runner w]
+puts $channel {#!/usr/bin/env bash
+printf 'ASH runner child: %s\n' "$ASH_RUNNER_TEST_EXIT"
+exit "$ASH_RUNNER_TEST_EXIT"}
+close $channel
+file attributes $runner -permissions 0755
+sqlite3 hdbjobs :memory:
+hdbjobs eval {
+    CREATE TABLE JOBCI(ci_id INTEGER PRIMARY KEY,refname TEXT,status TEXT,
+        io_intensive INTEGER,collect_ash INTEGER,end_timestamp TEXT);
+}
+set previous_environment {}
+foreach name {ASH_RUNNER_TEST_EXIT HAMMERDB_ASH UAW} {
+    if {[info exists ::env($name)]} {dict set previous_environment $name $::env($name)}
+}
+
+foreach {provider database family} {postgresql PostgreSQL postgresql mysql MySQL mysql mariadb MariaDB mariadb villagesql VillageSQL mysql} {
+    foreach exit_status {0 17} {
+        test ashrunner-single-$provider-$exit_status {a real failing benchmark cannot complete Single or advance its pipeline} -setup {
+            set rdbms $database
+            set ::env(ASH_RUNNER_TEST_EXIT) $exit_status
+            set ::env(HAMMERDB_ASH) 1
+            set runner_messages {}
+            set ::next_step_ran 0
+            hdbjobs eval {DELETE FROM JOBCI;
+                INSERT INTO JOBCI VALUES(1,'runner-tag','RUNNING',0,1,NULL)}
+            set cidict [dict create $database [dict create test [dict create oltp $runner] \
+                pipeline [dict create single {start_tests:oltp clone}]]]
+            # Only the post-benchmark step is stubbed: reaching it proves that
+            # cisteps accepted a failed child as success.
+            rename ${provider}_clone ${provider}_clone_original
+            proc ${provider}_clone {args} {set ::next_step_ran 1; return {CLONE SUCCEEDED}}
+        } -body {
+            cisteps $cidict runner-tag single 0
+            list [hdbjobs onecolumn {SELECT status FROM JOBCI WHERE ci_id=1}] \
+                $::next_step_ran [string match {*ASH runner child:*} [join $runner_messages \n]]
+        } -cleanup {
+            rename ${provider}_clone {}
+            rename ${provider}_clone_original ${provider}_clone
+        } -result [list [expr {$exit_status == 0 ? "COMPLETE" : "TEST FAILED"}] \
+            [expr {$exit_status == 0}] 1]
+
+        foreach mode {profile compare} {
+            test ashrunner-$mode-$provider-$exit_status {Profile and Compare honor real runner status and save failure on the CI row} -setup {
+                set rdbms $database
+                set ::env(ASH_RUNNER_TEST_EXIT) $exit_status
+                set ::env(HAMMERDB_ASH) 1
+                set runner_messages {}
+                hdbjobs eval {DELETE FROM JOBCI;
+                    INSERT INTO JOBCI VALUES(1,'runner-tag','RUNNING',0,1,NULL)}
+                set helper [expr {$family eq "postgresql" ? "_pg_${mode}_run_once" : "_${mode}_run_once"}]
+                load_runner_helper ${family}_$mode $helper
+            } -body {
+                set arguments [list $root $runner runner-tag 1000]
+                if {$mode eq "compare"} {lappend arguments 1}
+                lappend arguments 0
+                set success [$helper {*}$arguments]
+                list $success [hdbjobs onecolumn {SELECT status FROM JOBCI WHERE ci_id=1}] \
+                    [string match {*ASH runner child:*} [join $runner_messages \n]]
+            } -result [list [expr {$exit_status == 0}] \
+                [expr {$exit_status == 0 ? "COMPLETE" : "[string toupper $mode] FAILED"}] 1]
+        }
+    }
+}
+
+hdbjobs close
+foreach name {ASH_RUNNER_TEST_EXIT HAMMERDB_ASH UAW} {
+    if {[dict exists $previous_environment $name]} {
+        set ::env($name) [dict get $previous_environment $name]
+    } else {
+        unset -nocomplain ::env($name)
+    }
+}
+removeDirectory $directory
+set failed $::tcltest::numTests(Failed)
+cleanupTests
+exit [expr {$failed > 0}]

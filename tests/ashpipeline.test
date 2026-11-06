@@ -1,0 +1,358 @@
+# Real request/SQLite/lifecycle integration, with database workers stubbed.
+package require Tcl 9.0
+package require tcltest
+namespace import ::tcltest::*
+set root [file dirname [file dirname [file normalize [info script]]]]
+::tcl::tm::path add [file join $root modules]
+package require json
+package require sqlite3
+package require pipelines
+
+# Load the actual procedures without starting the CI listener or CLI shell.
+proc load_proc {filename name} {
+    set f [open $filename]; set text [read $f]; close $f
+    set found 0; set body ""
+    foreach line [split $text \n] {
+        if {!$found && [string match "proc $name *" [string trimleft $line]]} {set found 1}
+        if {$found} {
+            append body $line \n
+            if {[info complete $body]} {uplevel #0 $body; return}
+        }
+    }
+    error "Procedure $name not found"
+}
+foreach name {ci_latest_id ci_collect_ash_for_ref process_request cipush cisteps} {
+    load_proc [file join $root src generic genci.tcl] $name
+}
+foreach name {cli_ash_requested vurun vudestroy} {
+    load_proc [file join $root src generic gencli.tcl] $name
+}
+proc putscli {message} {lappend ::messages $message}
+proc putsci {message} {lappend ::messages $message}
+proc http_reply {sock code body} {set ::reply [list $code $body]}
+proc dbset {what prefix} {
+    dict for {key value} $::dbdict {
+        if {[dict get $value prefix] eq $prefix} {set ::rdbms [dict get $value name]; return}
+    }
+}
+sqlite3 hdbjobs :memory:
+hdbjobs eval {CREATE TABLE JOBCI(ci_id INTEGER PRIMARY KEY,refname TEXT,dbprefix TEXT,pipeline TEXT,
+    io_intensive INTEGER DEFAULT 0,collect_ash INTEGER DEFAULT 0,cidict TEXT,status TEXT DEFAULT 'PENDING')}
+hdbjobs eval {CREATE TABLE JOBOUTPUT(jobid TEXT,vu INTEGER,output TEXT)}
+set dbdict [dict create]
+set cidict [dict create common [dict create listen_port 5000]]
+foreach {key name prefix} {postgresql PostgreSQL pg mysql MySQL mysql mariadb MariaDB maria villagesql VillageSQL vsql oracle Oracle ora} {
+    dict set dbdict $key [dict create name $name prefix $prefix]
+    dict set cidict $name build [dict create ref_regexp {refs/(tags|heads)/(.+)} overwrite 0]
+}
+proc reset_ci {} {hdbjobs eval {DELETE FROM JOBCI}; set ::reply {}; set ::messages {}}
+
+foreach prefix {pg mysql maria vsql} {
+    foreach {mode workload} {single C single H profile C compare C} {
+        test ash-request-$prefix-$mode-$workload {enabled checkbox reaches the queued pipeline} -setup {
+            reset_ci
+        } -body {
+            set payload [pipelines::__make_payload_json RELEASE $prefix $mode $workload 0 1]
+            process_request no_socket {} $payload $cidict
+            hdbjobs eval {SELECT dbprefix,collect_ash FROM JOBCI}
+        } -result [list $prefix 1]
+    }
+}
+test ash-request-default {older calls default to disabled} -setup reset_ci -body {
+    process_request no_socket {} [pipelines::__make_payload_json RELEASE pg single C 0] $cidict
+    hdbjobs eval {SELECT collect_ash FROM JOBCI}
+} -result 0
+foreach value {2 -1 true null {"arbitrary"}} {
+    test ash-request-invalid-$value {invalid flags reject before queueing} -setup reset_ci -body {
+        set payload "{\"ref\":\"refs/tags/RELEASE\",\"database\":\"pg\",\"collect_ash\":$value}"
+        process_request no_socket {} $payload $cidict
+        list [lindex $reply 0] [hdbjobs eval {SELECT count(*) FROM JOBCI}]
+    } -result {{400 Bad Request} 0}
+}
+test ash-request-unsupported {no silent ASH downgrade for another database} -setup reset_ci -body {
+    process_request no_socket {} {{"ref":"refs/tags/RELEASE","database":"ora","collect_ash":1}} $cidict
+    list [lindex $reply 0] [string match "ASH is supported only*" [lindex $reply 1]] [hdbjobs eval {SELECT count(*) FROM JOBCI}]
+} -result {{400 Bad Request} 1 0}
+test ash-cipush-compatible {old arguments and appended ASH argument reach the same listener} -setup {
+    reset_ci; set listen_socket no_socket
+} -body {
+    cipush refs/tags/RELEASE single C pg 0 1
+    hdbjobs eval {SELECT collect_ash FROM JOBCI}
+} -cleanup {unset listen_socket} -result 1
+
+proc postgresql_clone {args} {set ::seen_ash $::env(HAMMERDB_ASH); return "CLONE FAILED"}
+proc postgresql_profile {args} {set ::seen_ash $::env(HAMMERDB_ASH); error "fixture provider failure"}
+proc prepare_ci {enabled} {
+    reset_ci
+    hdbjobs eval {INSERT INTO JOBCI(refname,dbprefix,collect_ash,status) VALUES('RELEASE','pg',$enabled,'BUILDING')}
+    set ::rdbms PostgreSQL
+    dict set ::cidict PostgreSQL pipeline single_c clone
+    dict set ::cidict PostgreSQL pipeline profile profile
+}
+test ash-env-early-return {pipeline environment is scoped across early return} -setup {
+    prepare_ci 1; set env(HAMMERDB_ASH) previous
+} -body {
+    cisteps $cidict RELEASE single_c 0
+    list $seen_ash $env(HAMMERDB_ASH)
+} -cleanup {unset env(HAMMERDB_ASH)} -result {1 previous}
+test ash-env-provider-error {pipeline environment is restored on error} -setup {
+    prepare_ci 1; unset -nocomplain env(HAMMERDB_ASH)
+} -body {
+    catch {cisteps $cidict RELEASE profile 0}
+    list $seen_ash [info exists env(HAMMERDB_ASH)]
+} -result {1 0}
+test ash-env-disabled {stale enabled environment never enables an unchecked pipeline} -setup {
+    prepare_ci 0; set env(HAMMERDB_ASH) 1
+} -body {
+    cisteps $cidict RELEASE single_c 0
+    list $seen_ash $env(HAMMERDB_ASH)
+} -cleanup {unset env(HAMMERDB_ASH)} -result {0 1}
+
+# Capture boundaries are fakes; actual ASH collector has its own replay tests.
+namespace eval ashcapture {
+    variable isactive 0
+    proc start {id} {
+        lappend ::events [list start $id]
+        if {$::start_fails} {error "fixture ASH readiness failed"}
+        set ::ashcapture::isactive 1
+    }
+    proc active {} {return $::ashcapture::isactive}
+    proc stop {{state complete}} {
+        if {!$::ashcapture::isactive} {return}
+        lappend ::events [list stop $state]
+        set ::ashcapture::isactive 0
+        if {$::stop_fails} {error "fixture ASH flush failed"}
+    }
+}
+package provide ashcapture 1.0
+proc threadnames_without_tcthread {} {return $::worker_threads}
+proc guid {} {return JOB-[incr ::job_sequence]}
+proc jobmain {id type} {lappend ::events [list job $id $type];return 0}
+proc job_disable_check {} {return $::storage_disabled}
+proc vucreate {} {lappend ::events create}
+proc remote_command {args} {}
+proc run_virtual {} {
+    lappend ::events run
+    if {$::run_fails} {error "fixture workload failure"}
+}
+proc keepalive {} {
+    lappend ::events wait
+    if {$::cancel_during_run} {vudestroy}
+}
+proc vucomplete {} {return $::completed}
+proc reset_run {} {
+    set ::events {};set ::job_sequence 0;set ::start_fails 0;set ::stop_fails 0
+    set ::storage_disabled 0;set ::run_fails 0;set ::cancel_during_run 0;set ::completed 1
+    set ::worker_threads {main}
+    set ::ashcapture::isactive 0;set ::_ED(package) {fixture workload};set ::opmode Local
+    unset -nocomplain ::vustatus ::ash_cancelled_job
+    set ::env(HAMMERDB_ASH) 1
+}
+test ash-lifecycle-exact-job {capture starts with allocated job before workload and flushes on completion} -setup reset_run -body {
+    set result [vurun]
+    list $result $events
+} -result {{Benchmark Run jobid=JOB-1} {{job JOB-1 run} create {start JOB-1} run wait {stop complete}}}
+test ash-lifecycle-profile {each iteration has a distinct capture identity} -setup reset_run -body {
+    vurun;vurun
+    lmap event $events {if {[lindex $event 0] eq "start"} {set event} else continue}
+} -result {{start JOB-1} {start JOB-2}}
+test ash-lifecycle-readiness {readiness failure prevents any workload execution} -setup {
+    reset_run;set start_fails 1
+} -body {
+    set rc [catch {vurun} message]
+    list $rc $message [expr {[lsearch -exact $events run] == -1}]
+} -result {1 {fixture ASH readiness failed} 1}
+test ash-lifecycle-run-failure {workload errors flush as failure and remain errors} -setup {
+    reset_run;set run_fails 1
+} -body {
+    set rc [catch {vurun}]
+    list $rc [lindex $events end]
+} -result {1 {stop failed}}
+test ash-lifecycle-vu-failure {a completed run containing failed VUs never reports ASH completion} -setup {
+    reset_run;set vustatus [dict create 1 "FINISH FAILED"]
+} -body {
+    list [catch {vurun}] [lindex $events end]
+} -result {1 {stop failed}}
+test ash-lifecycle-flush-failure {failed persistence never returns benchmark success} -setup {
+    reset_run;set stop_fails 1
+} -body {
+    list [catch {vurun} message] $message
+} -result {1 {fixture ASH flush failed}}
+test ash-lifecycle-timeout {keepalive returning without completion is not success} -setup {
+    reset_run;set completed 0
+} -body {
+    list [catch {vurun}] [lindex $events end]
+} -result {1 {stop failed}}
+test ash-lifecycle-cancel {explicit teardown preserves cancelled collection state} -setup {
+    reset_run;set cancel_during_run 1
+} -body {
+    list [catch {vurun}] [lindex $events end]
+} -result {1 {stop cancelled}}
+test ash-lifecycle-after-cancel {a cancelled run cannot contaminate the next job identity or completion} -setup {
+    reset_run;set cancel_during_run 1
+} -body {
+    catch {vurun}
+    set cancel_during_run 0
+    set result [vurun]
+    list $result [lmap event $events {
+        if {[lindex $event 0] in {start stop}} {set event} else continue
+    }]
+} -result {{Benchmark Run jobid=JOB-2} {{start JOB-1} {stop cancelled} {start JOB-2} {stop complete}}}
+test ash-lifecycle-active-vus {ASH never reports success when another workload is active} -setup {
+    reset_run;set worker_threads {main existing-worker}
+} -body {
+    list [catch {vurun}] $events
+} -result {1 {}}
+test ash-lifecycle-no-storage {ASH requires enabled Jobs before workload or allocation} -setup {
+    reset_run;set storage_disabled 1
+} -body {
+    list [catch {vurun}] $events
+} -result {1 {}}
+test ash-lifecycle-disabled {default path does not initialize capture} -setup {
+    reset_run;unset env(HAMMERDB_ASH)
+} -body {
+    vurun
+    expr {[lsearch -glob $events {start *}] == -1}
+} -result 1
+test ash-lifecycle-disabled-error {disabled ASH preserves the existing CLI workload error result} -setup {
+    reset_run;set env(HAMMERDB_ASH) 0;set run_fails 1
+} -body {
+    list [catch {vurun} result] $result $events
+} -result {0 {Benchmark Run (No jobid)} {{job JOB-1 run} create run}}
+test ash-lifecycle-disabled-storage {disabled ASH preserves runs with Jobs disabled} -setup {
+    reset_run;set env(HAMMERDB_ASH) 0;set storage_disabled 1
+} -body {
+    list [vurun] $events
+} -result {{Benchmark Run (No jobid)} {{job JOB-1 run} create run wait}}
+
+# Exercise the actual Compare dispatch and its two subprocess runners. Only
+# database provisioning, VCS operations, and the capture/worker boundaries are
+# fixtures; request storage, baseline copying, CLI execution and IDs are real.
+hdbjobs close
+set compare_dir [makeDirectory ashcompare]
+set compare_db [file join $compare_dir jobs.db]
+sqlite3 hdbjobs $compare_db
+hdbjobs eval {
+    CREATE TABLE JOBCI(ci_id INTEGER PRIMARY KEY, refname TEXT, dbprefix TEXT,
+        pipeline TEXT, io_intensive INTEGER DEFAULT 0, collect_ash INTEGER DEFAULT 0,
+        cidict TEXT, status TEXT DEFAULT 'PENDING', profile_id INTEGER,
+        end_timestamp TEXT, clone_cmd TEXT, clone_output TEXT);
+    CREATE TABLE JOBMAIN(jobid TEXT PRIMARY KEY, profile_id INTEGER);
+    CREATE TABLE JOBOUTPUT(jobid TEXT, vu INTEGER, output TEXT);
+    CREATE TABLE CAPTURE(jobid TEXT PRIMARY KEY, refname TEXT, state TEXT);
+    CREATE TABLE WORKLOAD(jobid TEXT PRIMARY KEY);
+}
+set compare_runner [file join $compare_dir runner]
+set f [open $compare_runner w]
+puts $f "#![info nameofexecutable]"
+puts $f [list set root $root]
+puts $f [list set jobs_path $compare_db]
+puts $f [list proc load_proc [info args load_proc] [info body load_proc]]
+puts $f {
+package require sqlite3
+sqlite3 hdbjobs $jobs_path
+foreach name {cli_ash_requested vurun} {
+    load_proc [file join $root src generic gencli.tcl] $name
+}
+proc putscli {message} {puts $message}
+proc threadnames_without_tcthread {} {return main}
+proc guid {} {return "JOB-$::env(REFNAME)-$::env(PROFILEID)"}
+proc job_disable_check {} {return 0}
+proc jobmain {id kind} {
+    set profile_id $::env(PROFILEID)
+    hdbjobs eval {INSERT INTO JOBMAIN VALUES($id,$profile_id)}
+    return 0
+}
+proc vucreate {} {}
+proc remote_command {args} {}
+proc run_virtual {} {hdbjobs eval {INSERT INTO WORKLOAD VALUES($::jobid)}}
+proc keepalive {} {}
+proc vucomplete {} {return 1}
+namespace eval ashcapture {
+    variable current
+    proc start {id} {
+        if {![hdbjobs exists {SELECT 1 FROM JOBMAIN WHERE jobid=$id}]} {
+            error "capture was started before job allocation"
+        }
+        set ::ashcapture::current $id
+        set refname $::env(REFNAME)
+        hdbjobs eval {INSERT INTO CAPTURE VALUES($id,$refname,'running')}
+    }
+    proc stop {{state complete}} {
+        set id $::ashcapture::current
+        hdbjobs eval {UPDATE CAPTURE SET state=$state WHERE jobid=$id}
+    }
+}
+package provide ashcapture 1.0
+set _ED(package) {fixture workload}
+set opmode Local
+if {[catch {vurun} message options]} {
+    puts stderr $message
+    exit 1
+}
+hdbjobs close
+}
+close $f
+file attributes $compare_runner -permissions 0755
+foreach {provider source} {postgresql src/postgresql/pgci.tcl mysql src/mysql/mysqlci.tcl mariadb src/mariadb/mariaci.tcl} {
+    foreach suffix {compare get_io_intensive} {load_proc [file join $root $source] ${provider}_$suffix}
+    foreach suffix {clone commit_msg build package install init start ping} {
+        proc ${provider}_$suffix {args} {return "fixture provisioning succeeded"}
+    }
+    proc ${provider}_run_sql {cidict refname action} {return "[string toupper $action] SUCCEEDED"}
+}
+interp alias {} villagesql_compare {} mysql_compare
+proc ci_check_tmp {} {}
+proc find_prefix {database} {
+    dict for {key info} $::dbdict {
+        if {[dict get $info name] eq $database} {return [dict get $info prefix]}
+    }
+}
+proc job {args} {return {fixture profile diff}}
+proc handle_test_output {pipe doneVar} {
+    append ::runner_output [read $pipe]
+    if {[eof $pipe]} {fileevent $pipe readable {};set $doneVar 1}
+}
+proc handle_output {pipe} {handle_test_output $pipe ::pipe_done}
+rename exec compare_real_exec
+proc exec {args} {
+    if {[lindex $args 0] eq "git" && "tag" in $args} {return "BASE\nTARGET"}
+    return [compare_real_exec {*}$args]
+}
+rename open compare_real_open
+proc open {path args} {
+    if {[string index $path 0] eq "|" && [string match {*git *} $path]} {set path {|sh -c {exit 0}}}
+    return [compare_real_open $path {*}$args]
+}
+foreach {provider database prefix} {postgresql PostgreSQL pg mysql MySQL mysql mariadb MariaDB maria villagesql VillageSQL vsql} {
+    foreach enabled {0 1} {
+        test ash-compare-$prefix-$enabled {both Compare legs retain selection and capture the exact allocated job IDs} -setup {
+            hdbjobs eval {DELETE FROM JOBCI;DELETE FROM JOBMAIN;DELETE FROM JOBOUTPUT;DELETE FROM CAPTURE;DELETE FROM WORKLOAD}
+            set rdbms $database
+            set runner_output ""
+            set cidict [dict create $database [dict create \
+                build [dict create build_dir [file join $compare_dir builds]] \
+                test [dict create compare $compare_runner] pipeline [dict create compare compare]]]
+            hdbjobs eval {INSERT INTO JOBCI(refname,dbprefix,collect_ash,status) VALUES('TARGET',$prefix,$enabled,'BUILDING')}
+            unset -nocomplain env(HAMMERDB_ASH)
+        } -body {
+            cisteps $cidict TARGET compare 0
+            set selections [hdbjobs eval {SELECT refname,collect_ash,status FROM JOBCI ORDER BY ci_id}]
+            set workloads [hdbjobs eval {SELECT jobid FROM WORKLOAD ORDER BY jobid}]
+            set captures [hdbjobs eval {SELECT jobid,refname,state FROM CAPTURE ORDER BY jobid}]
+            list $selections $workloads $captures [info exists env(HAMMERDB_ASH)]
+        } -result [list [list TARGET $enabled COMPLETE BASE $enabled COMPLETE] \
+            {JOB-BASE-1001 JOB-TARGET-1000} \
+            [expr {$enabled ? {JOB-BASE-1001 BASE complete JOB-TARGET-1000 TARGET complete} : {}}] 0]
+    }
+}
+rename open {}
+rename compare_real_open open
+rename exec {}
+rename compare_real_exec exec
+hdbjobs close
+removeDirectory $compare_dir
+unset -nocomplain ::env(HAMMERDB_ASH)
+set failed $::tcltest::numTests(Failed)
+cleanupTests
+exit [expr {$failed > 0}]

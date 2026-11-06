@@ -1,0 +1,106 @@
+package require tcltest
+namespace import ::tcltest::*
+::tcl::tm::path add [file normalize [file join [file dirname [info script]] .. modules]]
+package require ashstore
+
+proc fresh {} {
+    catch {db close}
+    sqlite3 db :memory:
+    db eval {CREATE TABLE JOBMAIN(jobid TEXT PRIMARY KEY);
+             CREATE TABLE JOBCI(ci_id INTEGER PRIMARY KEY);
+             INSERT INTO JOBMAIN VALUES('one'),('two')}
+    ashstore::init db
+}
+proc sample {id when} {
+    dict create ash_id $id ash_time "2026-11-05 10:00:00.123456" _epoch $when \
+        digest sql1 processlist_id 23 wait_event_type CPU sql_text {select '<script>'}
+}
+test ashstore-migration-1 {old Jobs schema migrates without deleting jobs} -body {
+    fresh
+    ashstore::init db
+    list [db onecolumn {SELECT count(*) FROM JOBMAIN}] \
+        [db onecolumn {SELECT collect_ash FROM JOBCI WHERE ci_id=1}] \
+        [db onecolumn {SELECT count(*) FROM pragma_table_info('JOBCI') WHERE name='collect_ash'}]
+} -result {2 {} 1}
+test ashstore-native-1 {persist all native fields; overlapping transfers deduplicate per Job} -body {
+    fresh
+    ashstore::begin db one mysql {run_start 100 server_timezone UTC}
+    ashstore::begin db two mysql {run_start 100 server_timezone UTC}
+    set a [sample 1 101.123456]
+    list [ashstore::append db one samples [list $a $a]] \
+        [ashstore::append db one samples [list $a]] \
+        [ashstore::append db two samples [list $a]] \
+        [expr {[lindex [ashstore::rows db one samples] 0] eq $a}]
+} -result {1 0 1 1}
+test ashstore-atomic-1 {one invalid row rolls back whole incoming batch} -body {
+    fresh
+    ashstore::begin db one pg {run_start 100}
+    catch {ashstore::append db one samples [list [sample 1 101] [dict create ash_id 2]]}
+    db onecolumn {SELECT count(*) FROM JOBASH}
+} -result 0
+test ashstore-boundaries-1 {indexed inclusive windows retain microsecond precision} -body {
+    fresh
+    ashstore::begin db one maria {run_start 100}
+    ashstore::append db one samples [list [sample 1 100.1] [sample 2 100.2] [sample 3 100.3]]
+    lmap row [ashstore::rows db one samples 100.2 100.3] {dict get $row ash_id}
+} -result {2 3}
+test ashstore-state-1 {completion is idempotent and cancellation explicit} -body {
+    fresh
+    ashstore::begin db one vsql {run_start 100}
+    ashstore::finish db one cancelled
+    ashstore::finish db one complete
+    dict get [ashstore::metadata db one] state
+} -result cancelled
+test ashstore-delete-1 {deletion cleans only selected Job} -body {
+    fresh
+    foreach id {one two} {
+        ashstore::begin db $id mysql {run_start 100}
+        ashstore::append db $id samples [list [sample 1 101]]
+    }
+    ashstore::delete db one
+    list [llength [ashstore::rows db one samples]] [llength [ashstore::rows db two samples]]
+} -result {0 1}
+test ashstore-job-1 {no capture without exact known Job} -body {
+    fresh
+    catch {ashstore::begin db missing pg {run_start 1}} msg
+    set msg
+} -match glob -result {*existing benchmark Job ID*}
+test ashstore-native-clock-1 {authoritative completion clock survives host clock skew} -body {
+    fresh
+    ashstore::begin db one pg {run_start 100 server_timezone UTC}
+    ashstore::update_metadata db one {run_end 123.456}
+    ashstore::finish db one complete
+    list [dict get [ashstore::metadata db one] run_end] \
+        [db onecolumn {SELECT ended_at FROM JOBASHINFO WHERE jobid='one'}]
+} -result {123.456 123.456}
+test ashstore-complete-snapshot-1 {empty native snapshot gets an atomic completion marker} -body {
+    fresh
+    ashstore::begin db one mysql {run_start 100}
+    ashstore::append_snapshot db one sqlstats [list [dict create digest old _epoch 101 _poll_epoch 101]] {stats_poll_epoch 101}
+    ashstore::append_snapshot db one sqlstats {} {stats_poll_epoch 102}
+    list [llength [ashstore::rows db one sqlstats]] [dict get [ashstore::metadata db one] stats_poll_epoch]
+} -result {1 102}
+test ashstore-bad-snapshot-1 {incomplete batch cannot advance completion metadata} -body {
+    fresh
+    ashstore::begin db one mysql {run_start 100 stats_poll_epoch 100}
+    catch {ashstore::append_snapshot db one sqlstats [list [dict create digest broken]] {stats_poll_epoch 101}}
+    list [llength [ashstore::rows db one sqlstats]] [dict get [ashstore::metadata db one] stats_poll_epoch]
+} -result {0 100}
+test ashstore-index-1 {historical range reads use the Job/source/time index} -body {
+    fresh
+    set explanation [db eval {EXPLAIN QUERY PLAN SELECT payload FROM JOBASH
+        WHERE jobid='one' AND source='samples' AND sample_time>=100 AND sample_time<=200}]
+    expr {[string match {*JOBASH_TIME*} $explanation] || [string match {*JOBASH_ORDER*} $explanation]}
+} -result 1
+test ashstore-chart-order-1 {archive preserves native chart order instead of sorting AAS text} -body {
+    fresh
+    ashstore::begin db one mysql {run_start 100}
+    set records [list [dict create _epoch 120 sample_id 101 AAS 1.0] \
+        [dict create _epoch 120 sample_id 106 AAS 0.1]]
+    ashstore::append db one chart $records
+    lmap row [ashstore::rows db one chart] {dict get $row sample_id}
+} -result {101 106}
+catch {db close}
+set failed $::tcltest::numTests(Failed)
+cleanupTests
+exit [expr {$failed > 0}]

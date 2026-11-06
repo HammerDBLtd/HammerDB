@@ -1,0 +1,307 @@
+# Real coordinator/native provider worker tests with recorded connector responses.
+# No benchmark database is contacted; sampler and monitor code are production code.
+package require Tcl 8.6
+package require tcltest
+namespace import ::tcltest::*
+set root [file dirname [file dirname [file normalize [info script]]]]
+::tcl::tm::path add [file join $root modules]
+package require Thread
+package require sqlite3
+package require ashstore
+package require ashcapture
+
+set fixture [makeDirectory ashcapture-packages]
+set connector [open [file join $fixture connector.tcl] w]
+puts $connector {
+namespace eval mysql {variable rows {}; variable columns {}; variable index 0}
+namespace eval maria {}
+proc mysqlconnect {args} {tsv::set ash_fixture connect_args $args; return native_handle}
+proc mariaconnect {args} {tsv::set ash_fixture connect_args $args; return native_handle}
+proc mysql::use {args} {}
+proc mysql::close {args} {tsv::incr ash_fixture closed}
+proc mysql::exec {handle sql} {
+    tsv::lappend ash_fixture executed $sql
+    if {[string match "CREATE EVENT*" $sql]} {tsv::set ash_fixture event 1}
+    if {[string match "DROP EVENT*" $sql]} {tsv::set ash_fixture event 0}
+    if {[string match "SET GLOBAL event_scheduler = ON*" $sql]} {tsv::set ash_fixture scheduler ON}
+    if {[string match "SET GLOBAL event_scheduler = OFF*" $sql]} {tsv::set ash_fixture scheduler OFF}
+    return 0
+}
+proc mysql::sel {handle sql args} {
+    variable rows; variable columns; variable index
+    if {[llength $args]} {
+        switch -glob -- $sql {
+            "SELECT COLLATION(CONCAT*" {return {utf8mb4_bin utf8mb4 utf8mb4_bin utf8mb4}}
+            "SELECT CHARACTER_SET_NAME*" {return {utf8mb4}}
+            "SELECT @@performance_schema*" {return [list [tsv::get ash_fixture ps]]}
+            "SELECT @@event_scheduler*" {return [list [tsv::get ash_fixture scheduler]]}
+            "*STATUS='ENABLED'*" {return [list [tsv::get ash_fixture event]]}
+            "*FROM information_schema.events*" {
+                if {[string match "SELECT EVENT_DEFINITION*" $sql]} {
+                    set full [::ashcapture::mysql_event_sql]
+                    return [list [string range $full [string first INSERT $full] end]]
+                }
+                return [list [tsv::get ash_fixture event]]
+            }
+            "*FROM performance_schema.setup_consumers*" {return [list [tsv::get ash_fixture consumers]]}
+            "*ENABLED!='YES'*" {return {0}}
+            "*FROM performance_schema.setup_instruments*" {return {1}}
+            default {error "Unrecognised strict instrumentation query"}
+        }
+    }
+    if {[tsv::get ash_fixture query_fail] && [string match "SELECT ash.*" $sql]} {error "Injected native query failure"}
+    tsv::lappend ash_fixture queried $sql
+    set rows {}
+    if {[string match "SELECT UNIX_TIMESTAMP(NOW*" $sql]} {
+        set rows [list [dict create _epoch [tsv::get ash_fixture clock] timezone [tsv::get ash_fixture timezone] system_timezone UTC utc_offset_seconds [tsv::get ash_fixture offset] collation_connection utf8mb4_bin collation_server utf8mb4_bin]]
+    } elseif {[string match "SELECT ash.*" $sql]} {
+        set rows [tsv::get ash_fixture samples]
+    } elseif {[string match "SELECT stats.*" $sql]} {
+        set rows [tsv::get ash_fixture stats]
+    } elseif {[string match "SELECT MAX(TIME_TO_SEC*" $sql]} {
+        set rows [tsv::get ash_fixture chart]
+    } elseif {[string match "SELECT TIME_TO_SEC*" $sql]} {
+        set rows [list [dict create secs 100]]
+    } else {error "Unrecognised transfer query"}
+    set index 0
+    set columns [expr {[llength $rows] ? [dict keys [lindex $rows 0]] : {}}]
+    return [llength $rows]
+}
+proc mysql::col {args} {variable columns; return $columns}
+proc mysql::fetch {args} {
+    variable rows; variable index; variable columns
+    set row [lindex $rows $index]; incr index
+    set result {}; foreach key $columns {lappend result [dict get $row $key]}
+    return $result
+}
+foreach name {use close exec sel col fetch} {
+    interp alias {} maria::$name {} mysql::$name
+}
+package provide mysqltcl 99.0
+package provide mariatcl 99.0
+}
+close $connector
+set index [open [file join $fixture pkgIndex.tcl] w]
+puts $index {package ifneeded mysqltcl 99.0 [list source [file join $dir connector.tcl]]}
+puts $index {package ifneeded mariatcl 99.0 [list source [file join $dir connector.tcl]]}
+close $index
+lappend auto_path $fixture
+
+proc reset_fixture {} {
+    foreach {key value} {ps 1 event 0 scheduler OFF consumers 2 closed 0 executed {} queried {} clock 1000 timezone +00:00 offset 0 query_fail 0 connect_args {} samples {} stats {} chart {}} {tsv::set ash_fixture $key $value}
+    unset -nocomplain ::env(HAMMERDB_ASH)
+}
+proc check_mysql_ssl {config} {set ::mysql_ssl_options {-ssl false}}
+proc check_maria_ssl {config} {set ::maria_ssl_options {-ssl false}}
+proc check_vsql_ssl {config} {set ::vsql_ssl_options {-ssl false}}
+proc prepare_job {provider} {
+    reset_fixture
+    set ::env(HAMMERDB_ASH) 1
+    set ::bm TPC-C
+    switch $provider {
+        mysql {set ::rdbms MySQL; set name configmysql}
+        maria {set ::rdbms MariaDB; set name configmariadb}
+        vsql {set ::rdbms VillageSQL; set name configvillagesql}
+    }
+    set ::$name [dict create connection [dict create ${provider}_host fixture.invalid ${provider}_port 3306 ${provider}_socket {}] tpcc [dict create ${provider}_user operator ${provider}_pass fixture-only ${provider}_dbase tpcc]]
+    set path [makeFile {} ashcapture.sqlite]
+    sqlite3 ::hdbjobs $path
+    hdbjobs eval {CREATE TABLE JOBMAIN(jobid TEXT PRIMARY KEY); INSERT INTO JOBMAIN VALUES('JOB-A')}
+    return $path
+}
+proc cleanup_job {path} {
+    catch {::ashcapture::stop cancelled}
+    catch {hdbjobs close}
+    removeFile $path
+    unset -nocomplain ::env(HAMMERDB_ASH)
+}
+
+test capture-disabled {disabled is a complete no-op} -setup reset_fixture -body {
+    list [::ashcapture::enabled] [::ashcapture::start arbitrary] [::ashcapture::active] [::ashcapture::threads]
+} -result {0 {} 0 {}}
+test capture-boolean {invalid flags fail rather than silently enable} -setup reset_fixture -body {
+    set ::env(HAMMERDB_ASH) arbitrary
+    catch {::ashcapture::enabled} message
+    string match *boolean $message
+} -cleanup {unset ::env(HAMMERDB_ASH)} -result 1
+test capture-inmemory {live capture cannot pretend SQLite memory is shared} -body {
+    sqlite3 hdbjobs :memory:
+    catch {::ashcapture::database_path} message
+    hdbjobs close
+    string match {*on-disk Jobs*} $message
+} -result 1
+
+foreach provider {mysql maria vsql} {
+    test capture-native-$provider {existing native worker/loop persist exact fields, chart and stats} -setup {
+        set path [prepare_job $provider]
+        set sample [dict create ash_id 7 ash_time {1970-01-01 00:16:41.250000} thread_id 3 processlist_id 44 user operator host localhost db tpcc command Query state running wait_event_type CPU wait_event CPU sql_text {select 'quoted', "text"} digest_text SELECT digest DIGEST1 _epoch 1001.25 _day 719528 _seconds 1001.25 _nulls_csv {}]
+        tsv::set ash_fixture samples [list $sample]
+        set chart [dict create secs 1001 sample_id 1002 wait_event_type CPU AAS 1.000 beg_secs 990 end_secs 1005 last_day 719528 first_day 719528]
+        tsv::set ash_fixture chart [list $chart]
+        tsv::set ash_fixture stats [list [dict create DIGEST DIGEST1 COUNT_STAR 42 SUM_TIMER_WAIT 123000 _epoch 1001]]
+        tsv::set application themonitor DESKTOP_UNCHANGED
+    } -body {
+        ::ashcapture::start JOB-A
+        set ids [::ashcapture::threads]
+        set active [::ashcapture::active]
+        set rows [ashstore::rows hdbjobs JOB-A samples]
+        set native [lindex $rows 0]
+        set captured [lindex [ashstore::rows hdbjobs JOB-A chart] 0]
+        ::ashcapture::stop complete
+        list $active [llength $ids] [dict get $native sql_text] [dict get $captured AAS] [dict get [ashstore::metadata hdbjobs JOB-A] state] [tsv::get application themonitor] [tsv::get ash_fixture event] [tsv::get ash_fixture scheduler]
+    } -cleanup {cleanup_job $path} -result {1 2 {select 'quoted', "text"} 1.000 complete DESKTOP_UNCHANGED 1 ON}
+}
+test capture-strict-failure {missing consumers fail before benchmark readiness and persist failure} -setup {
+    set path [prepare_job mysql]
+    tsv::set ash_fixture consumers 1
+} -body {
+    set code [catch {::ashcapture::start JOB-A} message]
+    list $code [::ashcapture::active] [dict get [ashstore::metadata hdbjobs JOB-A] state] [tsv::get ash_fixture event] [tsv::get ash_fixture scheduler]
+} -cleanup {cleanup_job $path} -result {1 0 failed 1 ON}
+
+# Two real coordinator/native-worker pairs use the same server fixture. The
+# sampler outlives either Job, matching the original desktop lifecycle.
+proc second_capture {path jobid key} {
+    set tid [thread::create {thread::wait}]
+    thread::send $tid [list apply {{module paths tm_paths} {
+        set ::auto_path $paths
+        ::tcl::tm::path add {*}$tm_paths
+        source $module
+    }} $::ashcapture::module_file $::auto_path [::tcl::tm::path list]]
+    thread::send -async $tid [list ::ashcapture::bootstrap $path $jobid [::ashcapture::configuration] $key]
+    set deadline [expr {[clock milliseconds]+5000}]
+    while {![tsv::exists ashcapture ready,$key]} {
+        if {[clock milliseconds]>$deadline} {error "Second capture readiness timed out"}
+        after 5
+        update
+    }
+    return $tid
+}
+proc cleanup_second {tid key} {
+    if {$tid ne "" && [thread::exists $tid]} {
+        catch {thread::send $tid {::ashcapture::shutdown cancelled}}
+        catch {thread::release $tid}
+    }
+    foreach name [list ready,$key worker,$key error,$key] {
+        if {[tsv::exists ashcapture $name]} {tsv::unset ashcapture $name}
+    }
+}
+test capture-overlap-stop {stopping creator leaves sampler and scheduler available to another capture} -setup {
+    set path [prepare_job mysql]
+    hdbjobs eval {INSERT INTO JOBMAIN VALUES('JOB-B')}
+    set tid {}; set key second-stop
+} -body {
+    ::ashcapture::start JOB-A
+    set tid [second_capture $path JOB-B $key]
+    ::ashcapture::stop complete
+    set native [tsv::get ashcapture worker,$key]
+    set result [list [tsv::get ashcapture ready,$key] [thread::exists $native] [tsv::get ash_fixture event] [tsv::get ash_fixture scheduler]]
+    thread::send $tid {::ashcapture::shutdown complete}
+    lappend result [dict get [ashstore::metadata hdbjobs JOB-B] state]
+    set result
+} -cleanup {cleanup_second $tid $key; cleanup_job $path} -result {ready 1 1 ON complete}
+test capture-overlap-failure {failed second startup leaves shared sampler operational for active Job} -setup {
+    set path [prepare_job mysql]
+    hdbjobs eval {INSERT INTO JOBMAIN VALUES('JOB-B')}
+    set tid {}; set key second-failure
+} -body {
+    ::ashcapture::start JOB-A
+    tsv::set ash_fixture consumers 1
+    set tid [second_capture $path JOB-B $key]
+    set result [list [tsv::get ashcapture ready,$key] [::ashcapture::active] [tsv::get ash_fixture event] [tsv::get ash_fixture scheduler]]
+    ::ashcapture::stop complete
+    lappend result [dict get [ashstore::metadata hdbjobs JOB-A] state] [dict get [ashstore::metadata hdbjobs JOB-B] state]
+    set result
+} -cleanup {cleanup_second $tid $key; cleanup_job $path} -result {failed 1 1 ON complete failed}
+test capture-native-null-and-metadata {native NULL flags, server clock and exact predicate metadata survive transfer} -setup {
+    set path [prepare_job mysql]
+    set sample [dict create ash_id 1 ash_time {1970-01-01 00:16:40} sql_text {} digest {} digest_text {} wait_event_type CPU wait_event CPU _epoch 1000 _day 719528 _seconds 1000 _nulls_csv {sql_text,digest} _weight_wait_event_type 004300500055 _collation_wait_event_type utf8mb4_bin _pad_wait_event_type 1 _like_69646c6525 0]
+    tsv::set ash_fixture samples [list $sample]
+} -body {
+    ::ashcapture::start JOB-A
+    set row [lindex [ashstore::rows hdbjobs JOB-A samples] 0]
+    ::ashcapture::stop cancelled
+    set meta [ashstore::metadata hdbjobs JOB-A]
+    list [dict get $row _nulls] [dict get $row _weight_wait_event_type] [dict get $row _pad_wait_event_type] [dict get $row _like_69646c6525] [dict get $meta server_timezone] [dict get $meta server_now] [expr {[llength [dict get $meta poll_times]]>=3}] [dict get $meta state]
+} -cleanup {cleanup_job $path} -result {{sql_text digest} 004300500055 1 0 +00:00 1000 1 cancelled}
+test capture-literal-credentials {empty and quoted credentials retain native connector argument boundaries} -setup {
+    set path [prepare_job mysql]
+    dict set ::configmysql tpcc mysql_pass {p a"ss[set x]$raw}
+} -body {
+    ::ashcapture::start JOB-A
+    set args [tsv::get ash_fixture connect_args]
+    set password [dict get $args -password]
+    ::ashcapture::stop complete
+    set password
+} -cleanup {cleanup_job $path} -result {p a"ss[set x]$raw}
+test capture-empty-password {empty native connector password is a value} -setup {
+    set path [prepare_job mysql]
+    dict set ::configmysql tpcc mysql_pass {}
+} -body {
+    ::ashcapture::start JOB-A
+    set args [tsv::get ash_fixture connect_args]
+    ::ashcapture::stop complete
+    list [dict exists $args -password] [dict get $args -password]
+} -cleanup {cleanup_job $path} -result {1 {}}
+test capture-native-query-failure {native transfer errors fail readiness, persist failure and close own threads} -setup {
+    set path [prepare_job mysql]
+    tsv::set ash_fixture query_fail 1
+} -body {
+    set code [catch {::ashcapture::start JOB-A} message]
+    list $code [::ashcapture::active] [::ashcapture::threads] [dict get [ashstore::metadata hdbjobs JOB-A] state] [string match {*native metadata and transfer queries*} $message]
+} -cleanup {cleanup_job $path} -result {1 0 {} failed 1}
+test capture-no-performance-schema {missing native Performance Schema blocks before sampler setup} -setup {
+    set path [prepare_job mysql]
+    tsv::set ash_fixture ps 0
+} -body {
+    set code [catch {::ashcapture::start JOB-A} message]
+    list $code [tsv::get ash_fixture event] [tsv::get ash_fixture scheduler] [dict get [ashstore::metadata hdbjobs JOB-A] state]
+} -cleanup {cleanup_job $path} -result {1 0 OFF failed}
+test capture-stop-idempotent {terminal state and shared instrumentation survive repeated stop} -setup {
+    set path [prepare_job mysql]
+} -body {
+    ::ashcapture::start JOB-A
+    ::ashcapture::stop cancelled
+    ::ashcapture::stop complete
+    list [dict get [ashstore::metadata hdbjobs JOB-A] state] [::ashcapture::threads] [tsv::get ash_fixture event] [tsv::get ash_fixture scheduler]
+} -cleanup {cleanup_job $path} -result {cancelled {} 1 ON}
+
+test capture-native-dst-offset {unchanged chart points use native matching sample offset across SYSTEM timezone changes} -setup {
+    set path [prepare_job mysql]
+    tsv::set ash_fixture timezone SYSTEM
+    tsv::set ash_fixture offset 3600
+    tsv::set ash_fixture samples [list [dict create ash_id 1 ash_time {1970-01-01 01:16:40} sql_text one digest d1 wait_event_type CPU wait_event CPU _epoch 1000 _day 719528 _seconds 4600.0 _utc_offset_seconds 3600.000000 _nulls_csv {}]]
+    tsv::set ash_fixture chart [list [dict create secs 4600.0 sample_id 1000 wait_event_type CPU AAS 1 beg_secs 4590 end_secs 4605 last_day 719528 first_day 719528]]
+} -body {
+    ::ashcapture::start JOB-A
+    tsv::set ash_fixture offset 0
+    tsv::set ash_fixture clock 1015
+    tsv::set ash_fixture samples [list [dict create ash_id 2 ash_time {1970-01-01 00:16:55} sql_text two digest d2 wait_event_type CPU wait_event CPU _epoch 1015 _day 719528 _seconds 1015.0 _utc_offset_seconds 0.000000 _nulls_csv {}]]
+    tsv::set ash_fixture chart [list [dict create secs 1015.0 sample_id 1015 wait_event_type CPU AAS 1 beg_secs 1005 end_secs 1020 last_day 719528 first_day 719528]]
+    ::ashcapture::stop complete
+    set offsets {}; foreach row [ashstore::rows hdbjobs JOB-A chart] {lappend offsets [dict get $row _sample_utc_offset_seconds]}
+    list $offsets [dict get [ashstore::metadata hdbjobs JOB-A] timezone_offset_changed]
+} -cleanup {cleanup_job $path} -result {{3600.000000 0.000000} 1}
+test capture-empty-stat-snapshot {empty completed native stats snapshot advances marker atomically} -setup {
+    set path [prepare_job mysql]
+    tsv::set ash_fixture stats [list [dict create DIGEST d1 COUNT_STAR 1 _epoch 1000]]
+} -body {
+    ::ashcapture::start JOB-A
+    set tid [lindex [::ashcapture::threads] 0]
+    thread::send $tid {::mysqlmet::mon_execute capture_stats}
+    set first [dict get [ashstore::metadata hdbjobs JOB-A] stats_poll_epoch]
+    tsv::set ash_fixture clock 1015
+    tsv::set ash_fixture stats {}
+    ::ashcapture::stop complete
+    list $first [dict get [ashstore::metadata hdbjobs JOB-A] stats_poll_epoch] [llength [ashstore::rows hdbjobs JOB-A sqlstats]]
+} -cleanup {cleanup_job $path} -result {1000 1015 1}
+
+test capture-pg-conninfo {libpq receives escaped values and an explicit connection timeout} -body {
+    set conninfo [::ashcapture::pg_conninfo localhost 5432 prefer operator {a'b\c d} {}]
+    list [string match {*password='a\\'b\\\\c d'*} $conninfo] [string match {*dbname=''*} $conninfo] [string match {*connect_timeout='30'} $conninfo]
+} -result {1 1 1}
+
+removeDirectory $fixture
+set failed $::tcltest::numTests(Failed)
+cleanupTests
+if {$failed} {exit 1}
