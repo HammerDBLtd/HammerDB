@@ -50,7 +50,7 @@ the pinned extension's supported `pgsentinel_ash.sampling_period` setting rather
 than the obsolete `pull_frequency` name. Installation, preload or activation
 failure prevents workload execution; there is no alternate collector.
 
-MySQL-family builds/startup enable Performance Schema. Strict headless setup
+MySQL-family builds/startup enable Performance Schema and the event scheduler. Strict headless setup
 reuses the desktop schema/event SQL and verifies the required consumers,
 instruments and scheduler before execution. Shared server instrumentation remains
 available after a Job ends, as in the desktop. Ending one Job stops and flushes

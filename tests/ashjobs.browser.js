@@ -140,18 +140,17 @@ async function main() {
       assert.equal(await content.evaluate(() => window.__ashXSS), undefined);
       assert.ok(await section('SQL statistics (captured snapshots)').locator('tbody tr').count());
       assert.ok(await section('SQL activity over time').locator('tbody tr').count());
+      assert.ok(await section('SQL activity timeline').locator('svg rect').count());
       await page.screenshot({path: path.join(artifacts, 'ash-sql-drilldown.png'), fullPage: true});
     });
     await check('session drilldown displays the selected native session identity and category statistics', async () => {
       const row = section('Session activity').locator('tbody tr').filter({hasText: '33'});
-      await row.getByRole('button', {name: 'View', exact: true}).click();
-      const detail = JSON.parse(await content.locator('.hdb-ash-sql').textContent());
-      assert.equal(detail.pid, '33');
-      const report = await (await context.request.get(`${base}/jobs?jobid=ASH-HISTORY&ashdata`)).json();
-      // The row belongs to the current selected window, and retains the
-      // exact native field values already displayed in its session table.
-      for (const name of ['total', 'cpu', 'io']) assert.ok(Object.hasOwn(detail, name));
-      assert.ok(report.sessions.some(session => session.pid === detail.pid));
+      const selected = await reportAfter(() => row.getByRole('button', {name: 'View', exact: true}).click());
+      assert.equal(selected.url.searchParams.get('sessionid'), '33');
+      assert.ok(Array.isArray(selected.report.session_details));
+      assert.ok(selected.report.session_details.length > 0);
+      assert.ok(selected.report.session_details.every(item => item.pid === '33'));
+      assert.ok(await section('Selected session details').locator('tbody tr').count());
     });
     await check('empty and uncollected Jobs show truthful states with no stale chart or SQL', async () => {
       const empty = await open('ASH-EMPTY');

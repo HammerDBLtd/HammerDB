@@ -912,7 +912,9 @@ proc mariadb_start {cidict refname} {
     }
 
     if {[ci_collect_ash_for_ref $refname]} {
-        lappend arglist "--performance-schema=ON"
+        # The existing desktop event sampler requires both startup options.
+        # event_scheduler=DISABLED cannot be enabled later with SET GLOBAL.
+        lappend arglist "--performance-schema=ON" "--event-scheduler=ON"
     }
 
     # start-time override

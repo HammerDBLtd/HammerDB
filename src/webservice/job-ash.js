@@ -178,6 +178,52 @@
       svg.addEventListener('pointercancel', () => {from = undefined;});
       display = () => paint(lastReport);
     };
+    // Native ASH SQL-over-time rows already include their source AAS values.
+    // This is a visual rendering only, not a second SQL or wait classifier.
+    const sqlOverTime = rows => {
+      if (!Array.isArray(rows) || !rows.length) return;
+      const section = element('section');
+      section.append(element('h3', 'SQL activity timeline'));
+      const frame = element('div'); frame.className = 'hdb-ash-overtime';
+      const values = rows.filter(row => finite(row.last_id) && finite(row.aas));
+      if (!values.length) {frame.append(element('p', 'No SQL timeline data.')); section.append(frame); details.append(section); return;}
+      const byTime = new Map();
+      for (const row of values) {
+        const time = Number(row.last_id), aas = Math.max(0, Number(row.aas));
+        if (!byTime.has(time)) byTime.set(time, []);
+        byTime.get(time).push({aas, category: String(row.category || row.wait_event_type || 'Other')});
+      }
+      const times = [...byTime.keys()].sort((a, b) => a - b);
+      const sums = times.map(time => byTime.get(time).reduce((sum, row) => sum + row.aas, 0));
+      const max = Math.max(1, ...sums);
+      const width = 1000, height = 250;
+      const margin = {left: 60, right: 15, top: 15, bottom: 42};
+      const plotWidth = width - margin.left - margin.right;
+      const plotHeight = height - margin.top - margin.bottom;
+      const barWidth = Math.max(1, plotWidth / times.length - 2);
+      const svg = svgElement('svg', {viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': 'Recorded SQL activity over time by wait category'});
+      for (let tick = 0; tick <= 4; tick++) {
+        const value = max * tick / 4;
+        const label = svgElement('text', {x: margin.left - 8, y: margin.top + plotHeight - value / max * plotHeight + 4, 'text-anchor': 'end'});
+        label.textContent = value.toFixed(2); svg.append(label);
+      }
+      for (let index = 0; index < times.length; index++) {
+        let bottom = 0;
+        const x = margin.left + (index + .5) * plotWidth / times.length - barWidth / 2;
+        for (const {aas, category} of byTime.get(times[index])) {
+          const y = margin.top + plotHeight - (bottom + aas) / max * plotHeight;
+          const rect = svgElement('rect', {x, y, width: barWidth, height: aas / max * plotHeight, fill: color(category)});
+          const title = svgElement('title'); title.textContent = `${new Date(times[index] * 1000).toLocaleString()} · ${category}: ${aas} AAS`;
+          rect.append(title); svg.append(rect);
+          bottom += aas;
+        }
+      }
+      for (const index of new Set([0, times.length - 1])) {
+        const label = svgElement('text', {x: margin.left + (index + .5) * plotWidth / times.length, y: height - 12, 'text-anchor': index === 0 ? 'start' : 'end'});
+        label.textContent = new Date(times[index] * 1000).toLocaleString(); svg.append(label);
+      }
+      frame.append(svg); section.append(frame); details.append(section);
+    };
     const render = report => {
       lastReport = report; details.replaceChildren(); limitations.replaceChildren(); sqlText.textContent = '';
       if (!report.available) {status.textContent = report.message || 'ASH was not collected for this Job.'; chart.replaceChildren(); return;}
@@ -194,9 +240,14 @@
         // PostgreSQL supports the desktop's queryid IS NULL drill-down too.
         if (id !== undefined) {selection.sql_id = id; load();}
       });
-      table('Session activity', report.sessions, row => {sqlText.textContent = JSON.stringify(row, null, 2);});
+      table('Session activity', report.sessions, row => {
+        const id = field(row, 'pid', 'processlist_id', 'session_id');
+        if (id !== undefined) {selection.session_id = id; load();}
+      });
+      if (Object.hasOwn(selection, 'session_id')) table('Selected session details', report.session_details);
       table('SQL statistics (captured snapshots)', report.sql_statistics?.length ? report.sql_statistics : report.sql_stats);
       table('SQL statements for selected event', report.event_sqls);
+      sqlOverTime(report.sql_overtime);
       table('SQL activity over time', report.sql_overtime);
       if (report.sql_text) sqlText.textContent = report.sql_text;
       for (const message of report.limitations || []) limitations.append(element('li', message));
@@ -208,7 +259,7 @@
       active = new AbortController();
       const current = ++generation;
       const url = new URL(source);
-      const parameters = {begin: 'begin', end: 'end', pointer_begin: 'pointerbegin', pointer_end: 'pointerend', sql_id: 'sqlid', event_id: 'eventid'};
+      const parameters = {begin: 'begin', end: 'end', pointer_begin: 'pointerbegin', pointer_end: 'pointerend', sql_id: 'sqlid', event_id: 'eventid', session_id: 'sessionid'};
       for (const [key, value] of Object.entries(selection)) url.searchParams.set(parameters[key], String(value));
       const deadline = setTimeout(() => active?.abort(), 30000);
       try {

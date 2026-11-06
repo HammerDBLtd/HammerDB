@@ -111,8 +111,9 @@ echo SERVER_STARTED
         set server_output ""
     } -body {
         set status [${provider}_start $cidict tag]
-        list $status [regexp -- {--performance-schema=ON} [read_fixture $::env(ASH_TEST_LOG)]]
-    } -result {{START SUCCEEDED} 1}
+        list $status [regexp -- {--performance-schema=ON} [read_fixture $::env(ASH_TEST_LOG)]] \
+            [regexp -- {--event-scheduler=ON} [read_fixture $::env(ASH_TEST_LOG)]]
+    } -result {{START SUCCEEDED} 1 1}
 }
 
 foreach {provider database} {postgresql PostgreSQL mysql MySQL mariadb MariaDB} {
