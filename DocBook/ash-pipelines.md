@@ -29,7 +29,7 @@ The desktop still uses its existing workers, queries, graph and table callbacks.
 
 ## Enable and execute
 
-Select **Active Session History (ASH)** in the existing Pipelines **Run
+Select **ASH Metrics** (immediately below the I/O option) in the existing Pipelines **Run
 Benchmark** form. It defaults to unchecked and is supported for PostgreSQL,
 MySQL, MariaDB and VillageSQL. The existing supported Single, Profile and Compare
 workflows carry `collect_ash: 0|1` through the listener and `JOBCI` into the runner.
@@ -194,8 +194,7 @@ raise an explicit error; replay never substitutes approximate grouping.
 4. Start the HammerDB Pipeline listener / Web Service using the host's
    normal EC2 configuration. In **Pipelines > Run Benchmark**, choose a
    PostgreSQL or MariaDB target, select **ASH Metrics** independently of I/O,
-   and execute a short **Single TPROC-C** run. The previous pipeline form uses
-   the label **Active Session History (ASH)**; both name the same option.
+   and execute a short **Single TPROC-C** run.
    Verify the server actually starts with PostgreSQL preloads or MySQL-family
    `performance_schema=ON` and `event_scheduler=ON`, as applicable.
    Capture must begin before workload execution and fail visibly if its
