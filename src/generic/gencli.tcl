@@ -1528,10 +1528,28 @@ proc vurun {} {
                 # Existing keepalive and VU completion semantics are retained.
                 keepalive
                 if {$ash_requested} {
+                    # TPROC-C keepalive is a wall-clock margin, not evidence that
+                    # per-VU timing/profile collection has finished. The original
+                    # workload finishes only when all VUs report completion.
+                    # Keep the ASH worker alive until then, with a bounded
+                    # failure path for a genuinely wedged worker.
+                    if {![vucomplete]} {
+                        putscli "ASH: benchmark duration elapsed; waiting for virtual users to finish collecting timing data"
+                        set ash_finish_deadline [expr {[clock milliseconds] + 900000}]
+                        while {![vucomplete]} {
+                            if {[info exists ::ash_cancelled_job] && $::ash_cancelled_job eq $ash_job} {
+                                error "ASH-enabled benchmark was cancelled during timing collection"
+                            }
+                            if {[clock milliseconds] >= $ash_finish_deadline} {
+                                error "ASH-enabled benchmark timing collection did not complete within 15 minutes after keepalive"
+                            }
+                            after 250
+                            update
+                        }
+                    }
                     if {[info exists ::ash_cancelled_job] && $::ash_cancelled_job eq $ash_job} {
                         error "ASH-enabled benchmark was cancelled"
                     }
-                    if {![vucomplete]} {error "ASH-enabled benchmark did not complete before keepalive returned"}
                     if {[info exists ::vustatus]} {
                         dict for {vu state} $::vustatus {
                             if {$state ne "FINISH SUCCESS"} {error "ASH-enabled benchmark has an unsuccessful virtual user"}
