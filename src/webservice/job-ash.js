@@ -49,7 +49,10 @@
     const inspectorTitle = root.querySelector('.hdb-ash-inspector-title');
     const limitations = root.querySelector('.hdb-ash-limitations');
     const workspace = root.querySelector('.hdb-ash-workspace');
-    const hint = root.querySelector('.hdb-ash-hint');
+    const range = root.querySelector('.hdb-ash-range');
+    const rangeBegin = root.querySelector('[data-ash-range-begin]');
+    const rangeEnd = root.querySelector('[data-ash-range-end]');
+    const rangeError = root.querySelector('.hdb-ash-range-error');
     const panes = {
       sql: root.querySelector('[data-rows="sql"]'),
       events: root.querySelector('[data-rows="events"]'),
@@ -62,6 +65,19 @@
     const key = name => String(name || 'Other').toLowerCase().replace(/_/g, '');
     const colorFor = name => (colorsFor().find(entry => key(entry[0]) === key(name)) || [null, '#8693A9'])[1];
     const category = row => label(field(row, 'category', 'group', 'wait_event_type'));
+    const localISO = epoch => {
+      const d = new Date(Number(epoch) * 1000);
+      return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 23);
+    };
+    const syncRange = report => {
+      if (!valid(report.captured_begin) || !valid(report.captured_end)) return;
+      const min = localISO(report.captured_begin), max = localISO(report.captured_end);
+      for (const input of [rangeBegin, rangeEnd]) {
+        input.min = min; input.max = max;
+      }
+      if (document.activeElement !== rangeBegin) rangeBegin.value = localISO(report.begin);
+      if (document.activeElement !== rangeEnd) rangeEnd.value = localISO(report.end);
+    };
     function clearedWindow() {
       const next = {};
       for (const k of ['begin','end','pointer_begin','pointer_end'])
@@ -69,9 +85,12 @@
       return next;
     }
     function clearToRange() {
-      selection = valid(current && current.captured_begin) && valid(current && current.captured_end)
-        ? {begin: Number(current.captured_begin), end: Number(current.captured_end)} : {};
-      focus = 'sql'; selectedID = null; view = 'sql-text'; load();
+      // Empty selection means the entire current benchmark Job. Preserve
+      // neither a stale SQL detail nor pointer coordinates.
+      selection = {};
+      focus = 'sql'; selectedID = null; view = 'sql-text';
+      rangeError.textContent = '';
+      load();
     }
     function selectRow(kind, row) {
       let id;
@@ -93,8 +112,7 @@
       view = focus === 'sql' ? 'sql-text' : focus;
       const what = focus === 'event' ? 'wait event' : focus === 'session' ? 'session' : 'SQL statement';
       inspectorTitle.textContent = 'Details · '+(id === '' ? 'NULL SQL ID' : String(id));
-      inspector.replaceChildren(attr('p',{'class':'hdb-ash-help'},'Loading '+what+' details from the saved ASH records…'));
-      status.textContent = 'Loading '+what+' details…';
+      inspector.replaceChildren(attr('p',{'class':'hdb-ash-help'},'Loading '+what+' details…'));
       load();
     }
     function legendPaint(rows) {
@@ -196,7 +214,10 @@
         selectedID=null; focus='sql'; view='sql-text'; load();
       });
       svg.addEventListener('pointercancel',()=>{down=null;});
-      svg.addEventListener('dblclick', clearToRange);
+      svg.addEventListener('dblclick', e => {
+        e.preventDefault();
+        clearToRange();
+      });
       chart.append(svg);
     }
     function barFor(row, kind, denominator) {
@@ -286,7 +307,7 @@
       if(!rows||!rows.length)return;
       const validRows=rows.filter(r=>valid(r.last_id)&&valid(r.aas));
       if(!validRows.length)return;
-      parent.append(attr('h4',{},'Selected SQL activity over time'));
+      parent.append(attr('h4',{},'Only SQL ID '+(selection.sql_id===''?'NULL':String(selection.sql_id))+' · activity over time in this benchmark window'));
       const byTime=new Map();
       for(const row of validRows) {
         const t=num(row.last_id), group=category(row);
@@ -345,7 +366,14 @@
             const block=attr('div',{'class':'hdb-ash-event-sql'});
             addMetric(block,'Samples',field(row,'total'));
             addMetric(block,'Backend',field(row,'backend_type'));
-            addCode(block,label(field(row,'query','sql_text')));
+            const statement = field(row,'query','sql_text');
+            if (statement !== undefined && statement !== null && String(statement).trim() !== '') {
+              addCode(block,String(statement));
+            } else {
+              addText(block,'No SQL text was recorded for this activity'+
+                (field(row,'backend_type') ? ' ('+field(row,'backend_type')+').' : '.'),
+                'hdb-ash-empty');
+            }
             inspector.append(block);
           }
         } else addText(inspector,'No captured SQL statements for this event.','hdb-ash-empty');
@@ -388,6 +416,8 @@
         if(cpu.length)addTable(inspector,cpu,['wait_event','total','percent']);
       }
     }
+    const formatStatus = report => String(report.state||'saved')+' · '+label(report.sample_count)+' captured samples'+
+      (report.error?' · '+report.error:'')+(report.message?' · '+report.message:'');
     async function load() {
       if(timer)clearTimeout(timer);
       if(controller)controller.abort();
@@ -395,14 +425,27 @@
       const thisCall=++generation;
       const url=new URL(source);
       const parameter={begin:'begin',end:'end',pointer_begin:'pointerbegin',pointer_end:'pointerend',sql_id:'sqlid',event_id:'eventid',session_id:'sessionid'};
-      for(const [key,value] of Object.entries(selection))url.searchParams.set(parameter[key],String(value));
+      const detail = current && ['sql_id','event_id','session_id'].some(key=>Object.prototype.hasOwnProperty.call(selection,key));
+      if (detail) {
+        // The summary already resolved chart pointer selection to native
+        // bounds. Do not reselect from an empty detail-only chart.
+        url.searchParams.set('detailonly','1');
+        url.searchParams.set('begin',String(current.begin));
+        url.searchParams.set('end',String(current.end));
+        for (const key of ['sql_id','event_id','session_id'])
+          if (Object.prototype.hasOwnProperty.call(selection,key))
+            url.searchParams.set(parameter[key],String(selection[key]));
+      } else {
+        for(const [key,value] of Object.entries(selection))url.searchParams.set(parameter[key],String(value));
+      }
       const deadline=setTimeout(()=>request.abort(),30000);
       try {
         const reply=await fetch(url,{credentials:'same-origin',cache:'no-store',signal:request.signal});
         const report=await reply.json();
         if(thisCall!==generation)return;
-        if(!reply.ok||(report.error&&!report.available))throw new Error(report.error||'ASH report request failed.');
-        render(report);
+        if(!reply.ok || (!report.available && report.error))throw new Error(report.error||'ASH report request failed.');
+        if (detail) renderDetail(report);
+        else render(report);
       } catch(error) {
         if(thisCall!==generation)return;
         const message = error.name==='AbortError'?'ASH request timed out.':String(error.message);
@@ -410,18 +453,35 @@
         inspector.replaceChildren(attr('p',{'class':'hdb-ash-empty'},'Unable to load ASH details: '+message));
       } finally {clearTimeout(deadline);}
     }
+    function renderDetail(report) {
+      if (!current || !report.available) {
+        status.textContent = report.message || 'ASH details could not be loaded.';
+        return;
+      }
+      // Do not replace the summary chart, rows or percentages with the
+      // selected SQL/event/session subset's own denominators.
+      const detailFields = ['sql_text','sql_io','sql_stats','sql_statistics','sql_overtime',
+        'event_sqls','session_details','sql_plan','plan_status'];
+      for(const field of detailFields)
+        current[field] = Object.prototype.hasOwnProperty.call(report,field) ? report[field] :
+          field === 'sql_text'||field === 'sql_plan'||field === 'plan_status' ? '' : [];
+      status.textContent = formatStatus(current);
+      for(const kind of ['sql','events','sessions'])paintPane(kind,current[kind]);
+      inspect();
+      if(current.state==='running')timer=setTimeout(load,15000);
+    }
     function render(report) {
       current=report;
       const available=!!report.available;
       root.classList.toggle('hdb-ash-unavailable',!available);
-      status.textContent=available ?
-        (String(report.state||'saved')+' · '+label(report.sample_count)+' captured samples'+(report.error?' · '+report.error:'')+(report.message?' · '+report.message:'')) :
+      status.textContent=available ? formatStatus(report) :
         (report.message||'ASH was not collected for this Job.');
       if(!available) {
         chart.replaceChildren();legend.replaceChildren();bounds.textContent='';
-        workspace.hidden=true;hint.hidden=true;limitations.replaceChildren();return;
+        workspace.hidden=true;range.hidden=true;limitations.replaceChildren();return;
       }
-      workspace.hidden=false;hint.hidden=false;
+      workspace.hidden=false;range.hidden=false;
+      syncRange(report);
       const selecting=Object.hasOwn(selection,'pointer_begin')||Object.hasOwn(selection,'begin');
       bounds.textContent=selecting&&valid(report.begin)&&valid(report.end) ?
         'Selected · '+stampLong(report.begin)+' — '+stampLong(report.end) : '';
@@ -435,6 +495,18 @@
         limitations.append(attr('li',{},message));
       if(report.state==='running')timer=setTimeout(load,15000);
     }
+    root.querySelector('[data-ash-range-apply]').addEventListener('click',()=>{
+      const begin=Date.parse(rangeBegin.value)/1000, end=Date.parse(rangeEnd.value)/1000;
+      if (!current || !Number.isFinite(begin) || !Number.isFinite(end) || begin>end ||
+          begin < Number(current.captured_begin) || end > Number(current.captured_end)) {
+        rangeError.textContent='Choose a valid time window within this benchmark Job.';
+        return;
+      }
+      rangeError.textContent='';
+      selection={begin,end};
+      focus='sql';selectedID=null;view='sql-text';load();
+    });
+    root.querySelector('[data-ash-range-reset]').addEventListener('click',clearToRange);
     for(const button of root.querySelectorAll('[data-ash-tab]'))button.addEventListener('click',()=>{view=button.dataset.ashTab;inspect();});
     window.addEventListener('pagehide',()=>{if(timer)clearTimeout(timer);if(controller)controller.abort();});
     load();
