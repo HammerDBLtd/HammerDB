@@ -2144,7 +2144,7 @@ namespace eval mariamet {
                         thread::send -async $parent " ::callback_mesg \"sql parsed\""
                     } message]} {
                     if {[info exists tpublic(ashcapture)]} {
-                        tsv::set fetched error,$cursor "ASH persistence query failed"
+                        tsv::set fetched error,$cursor "ASH native $from query '$cursor' failed: $message"
                     } else {
                     thread::send $parent "putsm \"call maria_all Query Failed, sql:$sql err:$message \""
                     }
