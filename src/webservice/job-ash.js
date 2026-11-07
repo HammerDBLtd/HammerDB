@@ -367,7 +367,7 @@
         else addText(inspector,selection.sql_id!==undefined?'No SQL statistics snapshot was captured for this statement.':'Select a SQL statement to view its captured statistics.','hdb-ash-empty');
       } else if(view==='sql-plan') {
         if(r.sql_plan)addCode(inspector,r.sql_plan);
-        else addText(inspector,selection.sql_id===undefined?'Select a SQL statement to view an archived execution plan.':'No plan was captured for this SQL ID. A plan must be captured while the source database is available.','hdb-ash-empty');
+        else addText(inspector,selection.sql_id===undefined?'Select a SQL statement to view an archived execution plan.':r.plan_status||'No execution plan was captured for this SQL ID.','hdb-ash-empty');
       } else if(view==='cpu') {
         addMetric(inspector,'Driver-host CPU reference',r.driver_cpucount);
         addMetric(inspector,'Captured ASH samples',r.sample_count);

@@ -158,8 +158,12 @@ Full desktop GUI interaction has not been manually regression-tested on Windows.
 These are reported Codex validation results from the original combined branch;
 run the commands below again on the cleaned EC2 ASH branch.
 
-Historical SQL plans remain unavailable: the existing desktop plan action is
-disabled/live-dependent and no plan was captured. Native nondeterministic
+After benchmark completion the collector attempts to capture up to 12 of the
+most frequently sampled SQL IDs using EXPLAIN without ANALYZE. Plans are stored
+with the ASH Job and can be viewed offline; SQL with unsupplied bind values,
+unsafe multi-statements, missing SQL text or unsupported commands are explicitly
+marked unavailable. Plan capture is best-effort and never runs SQL statements
+or changes the benchmark result. Native nondeterministic
 collations or missing comparison metadata that cannot be reproduced faithfully
 raise an explicit error; replay never substitutes approximate grouping.
 

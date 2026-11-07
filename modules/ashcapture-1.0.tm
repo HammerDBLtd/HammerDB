@@ -599,6 +599,93 @@ proc ::ashcapture::after_poll {} {
         catch {ashstore::finish ::ashcapture::store $::ashcapture::jobid failed $failed}
     }
 }
+
+# Explain plans are optional post-benchmark artefacts. Never execute the
+# workload SQL; EXPLAIN without ANALYZE only. Do not accept a second SQL
+# statement in the source text, and do not guess prepared-statement binds.
+proc ::ashcapture::explain_statement {handle provider statement} {
+    set text [string trim $statement]
+    # Permit at most one trailing statement terminator; reject multi-statements.
+    if {[string index $text end] eq ";"} {set text [string trimright [string range $text 0 end-1]]}
+    if {[regexp {;} $text]} {error "Multi-statement SQL cannot be explained safely"}
+    if {![regexp -nocase {^(SELECT|WITH|INSERT|UPDATE|DELETE|REPLACE)[[:space:]]} $text]} {
+        error "SQL command is not supported by EXPLAIN"
+    }
+    if {[regexp {\\$[0-9]+|\\?} $text]} {
+        error "The captured SQL uses bind parameters whose values were not saved"
+    }
+    if {$provider eq "pg"} {
+        set plan {}
+        set timeout [pg_exec $handle {SET statement_timeout = 1500}]
+        pg_result $timeout -clear
+        try {
+            pg_select $handle "EXPLAIN (FORMAT TEXT) $text" row {
+                lappend plan [lindex [array get row] 1]
+            }
+            return [join $plan "\n"]
+        } finally {
+            catch {pg_result [pg_exec $handle {RESET statement_timeout}] -clear}
+        }
+    }
+    # MySQL and MariaDB both support EXPLAIN FORMAT=JSON. This runs a
+    # query planner, not the statement itself. Unsupported SQL is recorded
+    # with a reason rather than becoming a benchmark failure.
+    set driver [expr {$provider eq "maria" ? "maria" : "mysql"}]
+    if {$driver eq "maria"} {
+        catch {maria::exec $handle {SET SESSION max_statement_time=1.5}}
+    } else {
+        catch {mysql::exec $handle {SET SESSION max_execution_time=1500}}
+    }
+    set plan [${driver}::sel $handle "EXPLAIN FORMAT=JSON $text" -flatlist]
+    return [lindex $plan 0]
+}
+
+# The last sampler transfer has completed and the workload's timing has
+# finished before this is called. Cap the number of plans to avoid holding
+# the CI shutdown for an unbounded workload-derived statement set.
+proc ::ashcapture::capture_plans {} {
+    variable provider
+    variable native_worker
+    set jobid $::ashcapture::jobid
+    if {$native_worker eq "" || ![thread::exists $native_worker]} {return}
+    set sqlids {}
+    ::ashcapture::store eval {
+        SELECT sql_id, count(*) AS frequency
+        FROM JOBASH WHERE jobid=$jobid AND source='samples'
+            AND sql_id IS NOT NULL AND sql_id!=''
+        GROUP BY sql_id ORDER BY frequency DESC LIMIT 12
+    } row {lappend sqlids $row(sql_id)}
+    if {![llength $sqlids]} {return}
+    thread::send $native_worker {package require ashcapture 1.0}
+    set saved 0
+    foreach sqlid $sqlids {
+        set payload [::ashcapture::store onecolumn {
+            SELECT payload FROM JOBASH WHERE jobid=$jobid
+              AND source='samples' AND sql_id=$sqlid
+            ORDER BY sample_time DESC LIMIT 1
+        }]
+        if {$payload eq ""} continue
+        set statement [ashstore::getfirst $payload [expr {$provider eq "pg" ? {query} : {sql_text digest_text}}]]
+        set plan ""
+        set status ""
+        if {$statement eq ""} {
+            set status "No SQL text was recorded for this SQL ID"
+        } else {
+            if {[catch {
+                set plan [thread::send $native_worker [list ::ashcapture::explain_statement $::public(handle) $provider $statement]]
+            } message]} {
+                set status $message
+            } else {
+                set status "Captured after benchmark timing finished (EXPLAIN without ANALYZE)"
+            }
+        }
+        set record [dict create _epoch [expr {[clock milliseconds]/1000.0}] plan_text $plan plan_status $status]
+        if {$provider eq "pg"} {dict set record queryid $sqlid} else {dict set record digest $sqlid}
+        ashstore::append ::ashcapture::store $jobid plans [list $record]
+        if {$plan ne ""} {incr saved}
+    }
+    ashstore::update_metadata ::ashcapture::store $jobid [dict create plans_captured $saved plans_attempted [llength $sqlids]]
+}
 proc ::ashcapture::shutdown {state} {
     variable ns
     variable failed
@@ -619,6 +706,13 @@ proc ::ashcapture::shutdown {state} {
             }
             foreach cursor {capture_samples capture_stats ash} {${ns}::mon_execute $cursor}
             after_poll
+            if {$failed eq "" && $state eq "complete"} {
+                # A best-effort optional post-run step; never mask successful
+                # timing collection or fail the ASH archive when EXPLAIN fails.
+                if {[catch {capture_plans} plan_error]} {
+                    catch {ashstore::update_metadata ::ashcapture::store $::ashcapture::jobid [dict create plan_capture_error $plan_error]}
+                }
+            }
         }
         set ::public(run) 0
     }

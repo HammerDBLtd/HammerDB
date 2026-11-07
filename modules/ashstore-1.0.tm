@@ -66,7 +66,7 @@ namespace eval ashstore {
     }
 
     proc append {db jobid source records} {
-        if {$source ni {samples sqlstats chart}} {error "Unknown ASH storage source"}
+        if {$source ni {samples sqlstats chart plans}} {error "Unknown ASH storage source"}
         if {![llength $records]} {return 0}
         # Validate the entire batch before writing any part of it. A malformed
         # transfer must not silently turn a partially stored batch into success.

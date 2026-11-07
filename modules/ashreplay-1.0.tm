@@ -705,7 +705,7 @@ proc ::ashreplay::report {database samples stats metadata options} {
             set delta [delta $first $last [dict get $contexts $id bucket]]
         } else {set delta [delta [expr {ceil($begin)}] [expr {ceil($end)}] [dict get $contexts $id bucket]]}
         set chart [_get $metadata chart_rows {}]
-        set limitations [list {SQL plans require the live database and were not captured.}]
+        set limitations [list {Execution plans are captured on a best-effort basis after benchmark timing completes; prepared or unsupported statements may not have a plan.}]
         if {![dict exists $metadata chart_rows]} {
             # This is one recorded refresh only, never an invented historical grid.
             set chart [_query $id $handle $database ash $metadata $options]
@@ -724,9 +724,15 @@ proc ::ashreplay::report {database samples stats metadata options} {
             if {[dict exists $row wait_event_type]} {dict set row category [dict get $row wait_event_type]}
             lappend selected_chart $row
         }
+        set io {}
+        # The original Desktop SQL I/O cursor replays against the saved
+        # native samples; do not generate a separate wait-class algorithm.
+        if {[catch {set io [_query $id $handle $database sqlio $metadata $options]}]} {
+            lappend limitations {Desktop SQL I/O query could not be replayed for this window.}
+        }
         set result [dict create database $database begin $begin end $end bucket_secs [dict get $contexts $id bucket] \
             chart $selected_chart sql [_shares $sql $sql_total sql] sessions [_shares $sessions $delta session] \
-            events [_shares $events $event_total event] \
+            events [_shares $events $event_total event] sql_io $io \
             sql_text {} sql_stats {} sql_statistics {} event_sqls {} sql_overtime {} limitations $limitations]
         if {[dict exists $options sql_id]} {
             # Desktop text, summary fallback and overtime queries intentionally

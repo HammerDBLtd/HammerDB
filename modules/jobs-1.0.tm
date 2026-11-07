@@ -94,13 +94,27 @@ namespace eval jobs {
     dict set report selected_sample_count $count
     dict set report captured_begin $first
     dict set report captured_end $last
+    dict set report sql_plan ""
+    dict set report plan_status ""
+    if {[dict exists $options sql_id]} {
+      set selected_sql_id [dict get $options sql_id]
+      set record [hdbjobs onecolumn {
+        SELECT payload FROM JOBASH WHERE jobid=$jobid
+        AND source='plans' AND sql_id=$selected_sql_id
+        ORDER BY sample_time DESC LIMIT 1
+      }]
+      if {$record ne ""} {
+        dict set report sql_plan [::ashstore::getfirst $record {plan_text} ""]
+        dict set report plan_status [::ashstore::getfirst $record {plan_status} ""]
+      }
+    }
     return $report
   }
 
   proc ash_report_json {report} {
     set pairs {}
     foreach {key value} $report {
-      if {$key in {chart sql sessions events sql_stats sql_statistics event_sqls sql_overtime session_details}} {
+      if {$key in {chart sql sessions events sql_io sql_stats sql_statistics event_sqls sql_overtime session_details}} {
         set items {}
         foreach row $value {
           set fields {}
