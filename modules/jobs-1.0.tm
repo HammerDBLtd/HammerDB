@@ -2831,12 +2831,29 @@ proc wapp-page-jobs {} {
         set ashurl "$B/jobs?jobid=$jobid&ashdata"
         wapp-subst {<link rel="stylesheet" href="%url($B/job-ash.css)">
 <section class="hdb-ash" data-hdb-ash="true" data-source="%html($ashurl)">
-<h2>Active Session History</h2>
-<p class="hdb-ash-status" role="status" aria-live="polite">Loading saved ASH samples…</p>
-<p class="hdb-ash-hint">Drag across the activity chart to select a time window. Double-click the chart to restore the full captured range.</p>
-<div class="hdb-ash-chart" role="img" aria-label="ASH activity by event category. Drag to select time; double-click to reset."></div>
-<div class="hdb-ash-legend"></div><p class="hdb-ash-window"></p>
-<div class="hdb-ash-details"></div><pre class="hdb-ash-sql"></pre><ul class="hdb-ash-limitations"></ul>
+<header class="hdb-ash-heading"><div><h2>Active Session History</h2><p class="hdb-ash-status" role="status" aria-live="polite">Loading saved ASH samples…</p></div></header>
+<p class="hdb-ash-hint">Drag across the activity chart to select a time window. Double-click the chart to show the full capture.</p>
+<div class="hdb-ash-chart" role="img" aria-label="ASH activity by event category, drag to select a time window, double-click to reset"></div>
+<div class="hdb-ash-legend" aria-label="ASH wait-class colour key"></div><p class="hdb-ash-window" aria-live="polite"></p>
+<div class="hdb-ash-workspace">
+<div class="hdb-ash-summary">
+<section class="hdb-ash-pane" data-pane="sql"><h3>SQL activity</h3><div class="hdb-ash-pane-rows" data-rows="sql"></div></section>
+<section class="hdb-ash-pane" data-pane="events"><h3>Wait events</h3><div class="hdb-ash-pane-rows" data-rows="events"></div></section>
+<section class="hdb-ash-pane" data-pane="sessions"><h3>Session activity</h3><div class="hdb-ash-pane-rows" data-rows="sessions"></div></section>
+</div>
+<section class="hdb-ash-inspector" aria-label="ASH activity details">
+<h3 class="hdb-ash-inspector-title">Details</h3>
+<nav class="hdb-ash-tabs" aria-label="ASH detail views">
+<button type="button" data-ash-tab="sql-text">SQL text</button>
+<button type="button" data-ash-tab="sql-io">SQL I/O</button>
+<button type="button" data-ash-tab="sql-stats">SQL stats</button>
+<button type="button" data-ash-tab="sql-plan">SQL plan</button>
+<button type="button" data-ash-tab="cpu">CPU</button>
+</nav>
+<div class="hdb-ash-inspector-body" aria-live="polite"></div>
+</section>
+</div>
+<ul class="hdb-ash-limitations"></ul>
 </section><script defer src="%url($B/job-ash.js)"></script>}
         common-footer
         return
