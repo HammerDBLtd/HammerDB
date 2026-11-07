@@ -57,7 +57,16 @@ namespace eval jobs {
         error [dict get $metadata error] chart {} sql {} sessions {} events {} \
         sql_text "" sql_stats {} event_sqls {} sql_overtime {} limitations {}]
     }
-    set chart_rows [::ashstore::rows $db $jobid chart]
+    set detail_only [expr {[dict exists $options detail_only] && [dict get $options detail_only]}]
+    if {$detail_only} {
+      set selectors 0
+      foreach key {sql_id event_id session_id} {if {[dict exists $options $key]} {incr selectors}}
+      if {$selectors != 1} {error "ASH detail requests require exactly one SQL, event, or session identifier"}
+      # Historical detail fetches must not retrieve/recompute the timeline.
+      set chart_rows {}
+    } else {
+      set chart_rows [::ashstore::rows $db $jobid chart]
+    }
     dict set metadata chart_rows $chart_rows
     if {[dict exists $options pointer_begin] || [dict exists $options pointer_end]} {
       if {![dict exists $options pointer_begin] || ![dict exists $options pointer_end] ||
@@ -91,7 +100,16 @@ namespace eval jobs {
     set count [hdbjobs onecolumn {SELECT count(*) FROM JOBASH WHERE jobid=$jobid
         AND source='samples' AND sample_time >= $begin AND sample_time <= $end}]
     if {$count > 250000} {error "ASH selection exceeds 250000 samples; choose a narrower window. All samples remain stored."}
-    set samples [::ashstore::rows $db $jobid samples $begin $end]
+    if {$detail_only} {
+      foreach {kind key} {sql_id sql_id event_id event_name session_id session_id} {
+        if {[dict exists $options $kind]} {
+          set samples [::ashstore::rows_matching $db $jobid $begin $end $key [dict get $options $kind]]
+          break
+        }
+      }
+    } else {
+      set samples [::ashstore::rows $db $jobid samples $begin $end]
+    }
     # Read only the most recent complete native statistics snapshot at/before
     # the selected end, rather than concatenating every 60-second snapshot.
     # The 15-second lookback also accommodates old PG rows whose clock-time
@@ -108,6 +126,12 @@ namespace eval jobs {
     set stats {}
     if {$latest_stat ne ""} {
       set stats [::ashstore::rows $db $jobid sqlstats [expr {$latest_stat-15.0}] $latest_stat]
+      # Replay must compare the selected snapshot, not the final snapshot of
+      # the Job when the operator has dragged to an earlier time.
+      if {[llength $stats]} {
+        set stat_record [lindex $stats end]
+        dict set metadata stats_poll_epoch [::ashstore::getfirst $stat_record {_poll_epoch _epoch} $latest_stat]
+      }
     }
     package require ashreplay
     set report [::ashreplay::report [dict get $metadata database] $samples $stats $metadata $options]
@@ -119,6 +143,7 @@ namespace eval jobs {
     dict set report selected_sample_count $count
     dict set report captured_begin $run_begin
     dict set report captured_end $run_end
+    dict set report detail_only $detail_only
     # A single indexed row is sufficient as a historical SQL-text fallback.
     # Never reconstruct a second in-memory database from all same-SQL samples.
     if {[dict exists $options sql_id] && [dict get $report sql_text] eq ""} {
@@ -2870,6 +2895,7 @@ proc wapp-page-jobs {} {
         foreach {parameter key} {begin begin end end pointerbegin pointer_begin pointerend pointer_end sqlid sql_id eventid event_id sessionid session_id} {
             if {[wapp-param-exists $parameter]} {dict set options $key [wapp-param $parameter]}
         }
+        if {[wapp-param-exists detailonly]} {dict set options detail_only 1}
         if {[catch {ash_report $jobid $options} report]} {
             wapp-reply-code {400 Bad Request}
             wapp-unsafe [jobs_json_object [list [jobs_json_pair error [jobs_json_quote $report]]]]
