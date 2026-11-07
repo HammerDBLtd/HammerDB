@@ -611,7 +611,7 @@ proc ::ashcapture::explain_statement {handle provider statement} {
     if {![regexp -nocase {^(SELECT|WITH|INSERT|UPDATE|DELETE|REPLACE)[[:space:]]} $text]} {
         error "SQL command is not supported by EXPLAIN"
     }
-    if {[regexp {\\$[0-9]+|\\?} $text]} {
+    if {[regexp {[$][0-9]+|[?]} $text]} {
         error "The captured SQL uses bind parameters whose values were not saved"
     }
     if {$provider eq "pg"} {
