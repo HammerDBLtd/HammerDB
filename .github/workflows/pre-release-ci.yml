@@ -1,0 +1,118 @@
+name: HammerDB pre-release CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: 'Optional candidate version X.Y.Z (must match all three entrypoints)'
+        required: false
+        type: string
+      full_linux_build:
+        description: 'Compile a Linux x64 candidate and smoke-test the CLI against PostgreSQL'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pre-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-sanity:
+    name: Source checks (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Tcl for lexical syntax checks
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tcl
+      - name: Verify Python, Tcl, shell, XML and version consistency
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          if [[ -n "$EXPECTED_VERSION" ]]; then
+            python3 -B ci/check_source.py --expected-version "$EXPECTED_VERSION"
+          else
+            python3 -B ci/check_source.py
+          fi
+      - name: Test CI validation rules
+        run: python3 -B -m unittest discover -s ci -p 'test_*.py' -v
+      - name: Test existing Docker librarycheck matcher
+        run: bash Docker/tests/test-librarycheck-pattern.sh
+
+  windows-source:
+    name: Portable source checks (Windows)
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Python, XML and version consistency
+        shell: pwsh
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          if ($env:EXPECTED_VERSION) {
+            python -B ci/check_source.py --portable-only --expected-version $env:EXPECTED_VERSION
+          } else {
+            python -B ci/check_source.py --portable-only
+          }
+      - name: Test CI validation rules
+        run: python -B -m unittest discover -s ci -p test_*.py -v
+
+  full-linux-candidate:
+    name: Full Linux build + CLI/PostgreSQL smoke (manual)
+    if: github.event_name == 'workflow_dispatch' && inputs.full_linux_build == true
+    needs: [source-sanity, windows-source]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Bawt and PostgreSQL build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential autoconf automake libtool pkg-config 7zip \
+            tcl tk python3-dev libpq-dev default-libmysqlclient-dev \
+            libmariadb-dev libssl-dev libx11-dev libxft-dev libfontconfig1-dev
+      - name: Build release candidate and run smoke checks
+        run: bash ci/build_candidate.sh
+      - name: Upload non-publishing validation evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hammerdb-linux-candidate-checks
+          path: |
+            ci-artifacts/candidate.sha256
+            ci-artifacts/test-summary.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Report candidate check results
+        if: success()
+        run: cat ci-artifacts/test-summary.txt >> "$GITHUB_STEP_SUMMARY"
