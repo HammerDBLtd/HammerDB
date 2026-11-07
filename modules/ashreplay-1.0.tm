@@ -712,6 +712,12 @@ proc ::ashreplay::report {database samples stats metadata options} {
             lappend limitations {Historical chart refresh rows were not captured; chart contains only the canonical query at recorded server_now.}
         }
         set selected_chart {}
+        # The chart must never show sample intervals from a previous workload
+        # that remained in the database server's shared ASH sampler. Historical
+        # Jobs are isolated by jobid, and their displayed chart is also
+        # bounded to THIS benchmark's recorded start/end timestamps.
+        set job_start [_get $metadata run_start $begin]
+        set job_end [_get $metadata run_end [_get $metadata server_now $end]]
         foreach row $chart {
             set row [_normal_row $row]
             if {[dict exists $row first_day] && [dict exists $row last_day] &&
@@ -720,6 +726,11 @@ proc ::ashreplay::report {database samples stats metadata options} {
                 set offset [_get $row _sample_utc_offset_seconds [_get $row _utc_offset_seconds ""]]
                 dict set row begin [_chart_bound $database [dict get $row first_day] [dict get $row beg_secs] [dict get $contexts $id timezone] $anchor $offset]
                 dict set row end [_chart_bound $database [dict get $row last_day] [dict get $row end_secs] [dict get $contexts $id timezone] $anchor $offset]
+            }
+            if {[dict exists $row begin] && [dict exists $row end]} {
+                if {[dict get $row end] < $job_start || [dict get $row begin] > $job_end} continue
+                dict set row begin [expr {max([dict get $row begin],$job_start)}]
+                dict set row end [expr {min([dict get $row end],$job_end)}]
             }
             if {[dict exists $row wait_event_type]} {dict set row category [dict get $row wait_event_type]}
             lappend selected_chart $row
