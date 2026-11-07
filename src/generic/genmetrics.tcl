@@ -145,9 +145,10 @@ proc DoDiscovery {sysinfo_data caller} {
 
 proc DoDisplay {maxcpu cpu_model caller} {
     global S CLR cputobars cputotxt cpucoords metframe win_scale_fact jobid agent_hostname discovery_data metrics_cpucount
-    set CLR(bg) [hdbcolor field]
-    set CLR(usr) [hdbcolor success]
-    set CLR(sys) [hdbcolor error]
+    # Preserve the original black CPU chart with green/red bars.
+    set CLR(bg) black
+    set CLR(usr) lightgreen
+    set CLR(sys) red
     set S(bar,width) [ expr {round((20/1.333333)*$win_scale_fact)} ]
     set S(bar,height) [ expr {round((87/1.333333)*$win_scale_fact)} ]
     set S(col,padding) [ expr {round((24/1.333333)*$win_scale_fact)} ]

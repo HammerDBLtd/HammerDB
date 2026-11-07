@@ -1,29 +1,32 @@
-# Palettes follow the web service colours. Keep classic Tk widgets
-# and the image-backed awthemes controls on the same surfaces.
-proc hdbdarkcolor {name} {
-    return [dict get {
-        background #0b1220 panel #111a2b field #0f1726
-        foreground #e6eefc muted #9fb0c8 border #1e2a44
-        hover #1b2d49 selection #24466b focus #5da9ff
-        brand #ff7900 disabled #71829b success #83d9ad
-        warning #f2c879 error #ffb2b9
-    } $name]
-}
-
-proc hdblightcolor {name} {
-    return [dict get {
-        background #f7f9fc panel #edf2f8 field #ffffff
-        foreground #0e1626 muted #536176 border #d3dce9
-        hover #e4ecf7 selection #dbeafe focus #185adb
-        brand #ff7900 disabled #68768b success #17643d
-        warning #855500 error #a52a39
-    } $name]
-}
-
+# Keep HammerDB's established awbreeze / awbreezedark colours.  The
+# modern spacing, typography and widget styling share the native grey
+# chrome, black/white work areas and orange interaction accent.
 proc hdbcolor {name {theme ""}} {
     if {$theme eq ""} {set theme $::ttk::currentTheme}
-    if {[string match "*dark*" $theme]} {return [hdbdarkcolor $name]}
-    return [hdblightcolor $name]
+    set background [ttk::style lookup TFrame -background]
+    if {$background eq ""} {
+        if {[string match "*dark*" $theme]} {
+            set background #424242
+        } else {
+            set background #eff0f1
+        }
+    }
+    if {[string match "*dark*" $theme]} {
+        set palette [dict create \
+            background $background panel $background field black \
+            foreground white muted #b0b0b0 border #626262 \
+            hover #505050 selection #484848 focus #FF7900 \
+            brand #FF7900 disabled #808080 success #528723 \
+            warning #edb926 error #E94F64]
+    } else {
+        set palette [dict create \
+            background $background panel $background field white \
+            foreground black muted #626262 border #b8babf \
+            hover #d3d4d8 selection LightGray focus #FF7900 \
+            brand #FF7900 disabled #808080 success green \
+            warning #edb926 error red]
+    }
+    return [dict get $palette $name]
 }
 
 # Scale presentation dimensions from 96-DPI logical pixels. Fonts remain in
@@ -75,20 +78,30 @@ proc tilestyle { defaultBackground icons theme } {
     ttk::style configure HDBMenubar.TFrame -padding [hdbspace {2 1}]
     ttk::style configure HDBStatus.TLabel -foreground $muted -padding [hdbspace {2 3}]
     ttk::style configure Heading -font HDBHeadingFont
-    ttk::style configure Treeview -background $fieldbackground \
-        -fieldbackground $fieldbackground -foreground $foreground -borderwidth 0
-    ttk::style map Treeview -background [list selected $selection] \
-        -foreground [list disabled $disabled selected $foreground]
+    # As before, the tree and entry controls use the native grey surface in
+    # dark mode, while text editors and metrics keep their black work areas.
+    set treebackground $fieldbackground
+    set treeselection $defaultBackground
+    set entrybackground $fieldbackground
+    if {[string match "*dark*" $theme]} {
+        set treebackground $defaultBackground
+        set treeselection black
+        set entrybackground $defaultBackground
+    }
+    ttk::style configure Treeview -background $treebackground \
+        -fieldbackground $treebackground -foreground $foreground -borderwidth 0
+    ttk::style map Treeview -background [list selected $treeselection] \
+        -foreground [list disabled $disabled selected [hdbcolor brand $theme]]
     ttk::style configure Treeview.Heading -background $panel -foreground $muted \
         -font HDBHeadingFont -padding [hdbspace {8 6}]
     ttk::style configure TProgressbar -troughcolor $panel -background [hdbcolor brand] \
         -lightcolor [hdbcolor brand] -darkcolor [hdbcolor brand] -borderwidth 0
     foreach style {TEntry TSpinbox TCombobox} {
-        ttk::style configure $style -font TkTextFont -fieldbackground $fieldbackground \
+        ttk::style configure $style -font TkTextFont -fieldbackground $entrybackground \
             -foreground $foreground -selectbackground $selection \
             -selectforeground $foreground -insertcolor $foreground
         ttk::style map $style -foreground [list disabled $disabled readonly $foreground] \
-            -fieldbackground [list disabled $panel readonly $fieldbackground]
+            -fieldbackground [list disabled $panel readonly $entrybackground]
     }
 
     # Option defaults cover classic widgets without replacing their classes,
@@ -193,38 +206,27 @@ proc initscaletheme {theme pixelsperpoint} {
     package require awthemes
     ::themeutils::setHighlightColor $theme "#FF7900"
     ::themeutils::setThemeColors $theme graphics.color #FF7900 focus.color #FF7900
+    # Restore the native awbreeze/awbreezedark backgrounds and widget
+    # colours. Only keep the original orange highlights and the branch's
+    # new padding/tab metrics; do not override the base palette.
+    if {![string match "*dark*" $theme]} {
+        ::themeutils::setThemeColors $theme \
+            scrollbar.active #d3d4d8 scrollbar.color #b8babf \
+            scrollbar.pressed #FF7900 scrollbar.trough #eff0f1
+    } else {
+        ::themeutils::setThemeColors $theme \
+            scrollbar.active #d3d4d8 \
+            scrollbar.color [ttk::style lookup TFrame -background] \
+            scrollbar.pressed #FF7900 scrollbar.trough black
+    }
     ::themeutils::setThemeColors $theme \
-        bg.bg [hdbcolor background $theme] fg.fg [hdbcolor foreground $theme] \
-        bg.light [hdbcolor panel $theme] bg.lighter [hdbcolor hover $theme] \
-        bg.lightest [hdbcolor muted $theme] \
-        border [hdbcolor border $theme] focus.color [hdbcolor focus $theme] \
-        active.color [hdbcolor hover $theme] \
-        button [hdbcolor panel $theme] button.pressed [hdbcolor selection $theme] \
-        entrybg.bg [hdbcolor field $theme] \
-        select.bg [hdbcolor selection $theme] select.fg [hdbcolor foreground $theme] \
-        select.bg.tree [hdbcolor selection $theme] \
-        select.bg.inactive [hdbcolor selection $theme] \
-        fg.disabled [hdbcolor disabled $theme] entryfg.disabled [hdbcolor disabled $theme] \
-        arrow.color [hdbcolor muted $theme] \
-        scrollbar.color.active [hdbcolor muted $theme] \
-        scrollbar.color [hdbcolor border $theme] \
-        scrollbar.color.pressed [hdbcolor focus $theme] \
-        scrollbar.trough [hdbcolor background $theme] \
-        button.active [hdbcolor hover $theme] \
-        button.active.focus [hdbcolor hover $theme] \
-        border.button.active [hdbcolor brand $theme] \
         button.padding {10 4} button.image.padding {4 3} \
         entry.padding {3 0} entry.image.padding {6 4} \
         combobox.padding {3 0} combobox.entry.image.padding {6 4} \
         spinbox.image.padding {4 4} \
         checkbutton.padding {4 3 2 3} radiobutton.padding {4 3 2 3} \
         checkbutton.focusthickness 1 radiobutton.focusthickness 1 \
-        menu.relief flat \
-        tab.selected [hdbcolor field $theme] tab.active [hdbcolor panel $theme] \
-        tab.inactive [hdbcolor background $theme] \
-        tab.color.selected [hdbcolor brand $theme] \
-        tab.color.hover [hdbcolor brand $theme] \
-        tree.arrow.selected [hdbcolor foreground $theme]
+        menu.relief flat tab.color.selected #FF7900 tab.color.hover #FF7900
     ::themeutils::setThemeColors $theme \
         style.progressbar rounded-line \
         style.scale circle-rev \

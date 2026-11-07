@@ -611,7 +611,7 @@ proc construct_menu {Name label cmd_list} {
     eval "menu $newmenu"
     eval [list add_items_to_menu $newmenu $cmd_list]
 
-    $newmenu configure -relief flat -borderwidth 0 -activeborderwidth 0 -activerelief flat -font basic -background [ dict get $icons defaultBackground ] -foreground [ dict get $icons defaultForeground ] -activebackground [hdbcolor selection] -activeforeground [hdbcolor foreground] -selectcolor [hdbcolor focus]
+    $newmenu configure -relief flat -borderwidth 0 -activeborderwidth 0 -activerelief flat -font basic -background [ dict get $icons defaultBackground ] -foreground [ dict get $icons defaultForeground ] -activebackground [hdbcolor selection] -activeforeground [hdbcolor brand] -selectcolor [hdbcolor focus]
 
     pack $Name -anchor nw -expand 0 -ipadx 4 -ipady 0 -padx 0 \
          -pady 0 -side left
@@ -649,7 +649,7 @@ proc add_items_to_menu {menubutton cmdList} {
                     -menu $newmenu"
                 eval $doit
                 menu $newmenu
-                $newmenu configure -relief flat -borderwidth 0 -activeborderwidth 0 -activerelief flat -font basic -background [ dict get $icons defaultBackground ] -foreground [ dict get $icons defaultForeground ] -activebackground [hdbcolor selection] -activeforeground [hdbcolor foreground]
+                $newmenu configure -relief flat -borderwidth 0 -activeborderwidth 0 -activerelief flat -font basic -background [ dict get $icons defaultBackground ] -foreground [ dict get $icons defaultForeground ] -activebackground [hdbcolor selection] -activeforeground [hdbcolor brand]
                 add_items_to_menu $newmenu [lindex $cmd 2]
             }
         }
@@ -1370,12 +1370,22 @@ proc applyctexthighlight {w} {
 
 proc setctexthighlight {w} {
     upvar #0 dbdict dbdict
-    set colour(vars) [hdbcolor success]
-    set colour(cmds) [hdbcolor focus]
-    set colour(functions) [hdbcolor warning]
-    set colour(brackets) [hdbcolor muted]
-    set colour(comments) [hdbcolor muted]
-    set colour(strings) [hdbcolor error]
+    # Retain the original HammerDB syntax-highlighting colours.
+    if {[string match "*dark*" $::ttk::currentTheme]} {
+        set colour(vars) #528723
+        set colour(cmds) #468CDE
+        set colour(functions) #edb926
+        set colour(brackets) gray50
+        set colour(comments) gray50
+        set colour(strings) #E94F64
+    } else {
+        set colour(vars) green
+        set colour(cmds) blue
+        set colour(functions) #edb926
+        set colour(brackets) gray50
+        set colour(comments) gray10
+        set colour(strings) red
+    }
     #Extract list of commands provided by each database for highlighting
     dict for {database attributes} $dbdict {
         dict with attributes {

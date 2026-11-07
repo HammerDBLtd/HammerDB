@@ -84,7 +84,7 @@ proc tablist w {
     $tbl configure -background [hdbcolor field]
     $tbl configure -foreground [hdbcolor foreground]
     $tbl configure -labelforeground [hdbcolor muted]
-    $tbl configure -selectbackground [hdbcolor selection]
+    $tbl configure -selectbackground [hdbcolor brand]
     $tbl configure -selectforeground [hdbcolor foreground]
     $tbl configure -stripebackground [ dict get $icons defaultBackground ]
     $tbl configure -spacing [hdbspace 3]
