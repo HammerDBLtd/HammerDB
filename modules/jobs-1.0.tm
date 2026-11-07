@@ -2910,8 +2910,16 @@ proc wapp-page-jobs {} {
         wapp-subst {<link rel="stylesheet" href="%url($B/job-ash.css)">
 <section class="hdb-ash" data-hdb-ash="true" data-source="%html($ashurl)">
 <header class="hdb-ash-heading"><div><h2>Active Session History</h2><p class="hdb-ash-status" role="status" aria-live="polite">Loading saved ASH samples…</p></div></header>
-<p class="hdb-ash-hint">Drag across the activity chart to select a time window. Double-click the chart to show the full capture.</p>
-<div class="hdb-ash-chart" role="img" aria-label="ASH activity by event category, drag to select a time window, double-click to reset"></div>
+<details class="hdb-ash-range" aria-label="Optional time selection">
+<summary>Custom time window</summary>
+<div class="hdb-ash-range-controls">
+<label>From <input type="datetime-local" step="0.001" data-ash-range-begin></label>
+<label>To <input type="datetime-local" step="0.001" data-ash-range-end></label>
+<button type="button" data-ash-range-apply>Apply time window</button>
+<button type="button" class="hdb-ash-range-reset" data-ash-range-reset>Full benchmark</button>
+</div><p class="hdb-ash-range-error" role="alert"></p>
+</details>
+<div class="hdb-ash-chart" role="img" aria-label="ASH activity by event category. Drag to select a time window."></div>
 <div class="hdb-ash-legend" aria-label="ASH wait-class colour key"></div><p class="hdb-ash-window" aria-live="polite"></p>
 <div class="hdb-ash-workspace">
 <div class="hdb-ash-summary">
