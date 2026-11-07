@@ -406,7 +406,8 @@ proc ::ashcapture::bootstrap {path jobid config key} {
         if {$failed ne ""} {error $failed}
         tsv::set ashcapture ready,$key ready
     } on error {message options} {
-        set failed "ASH capture startup failed during $stage; benchmark execution was blocked"
+        set failed "ASH $::ashcapture::provider capture startup failed during $stage: $message"
+        puts stderr $failed
         tsv::set ashcapture error,$key $failed
         catch {shutdown failed}
         tsv::set ashcapture ready,$key failed
@@ -488,8 +489,9 @@ proc ::ashcapture::receive {cursor} {
     set name [string range $cursor 5 end]
     try {
         if {[tsv::exists fetched error,$cursor]} {
+            set native_error [tsv::get fetched error,$cursor]
             tsv::unset fetched error,$cursor
-            error "ASH source query failed"
+            error $native_error
         }
         set records [tsv::get fetched $cursor]
         if {$name eq "capture_clock"} {
@@ -553,7 +555,8 @@ proc ::ashcapture::receive {cursor} {
             if {$name eq "ash"} {update_predicates}
         }
     } on error {message options} {
-        set failed "ASH persistence or instrumentation query failed"
+        set failed "ASH $provider $name transfer failed: $message"
+        puts stderr $failed
         set ::public(run) 0
         tsv::set ashcapture error,$statekey $failed
         catch {ashstore::finish ::ashcapture::store $::ashcapture::jobid failed $failed}
