@@ -23,6 +23,7 @@ namespace eval ashstore {
                 );
                 CREATE INDEX IF NOT EXISTS JOBASH_TIME ON JOBASH(jobid,source,sample_time);
                 CREATE INDEX IF NOT EXISTS JOBASH_SQL ON JOBASH(jobid,sql_id,sample_time);
+                CREATE INDEX IF NOT EXISTS JOBASH_SOURCE_SQL ON JOBASH(jobid,source,sql_id,sample_time DESC);
                 CREATE INDEX IF NOT EXISTS JOBASH_SESSION ON JOBASH(jobid,session_id,sample_time);
                 CREATE TABLE IF NOT EXISTS JOBASHINFO (
                     jobid TEXT PRIMARY KEY,
