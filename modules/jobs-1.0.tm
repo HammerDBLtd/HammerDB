@@ -43,8 +43,12 @@ namespace eval jobs {
       set sample_count $bounds(total)
     }
     if {$sample_count == 0} {
-      return [dict create available true jobid $jobid state [dict get $metadata state] \
-        sample_count 0 message "No ASH samples have been transferred yet." \
+      set state [dict get $metadata state]
+      set message [expr {$state eq "running" ?
+        "ASH sampler is running; waiting for the first native sample transfer." :
+        "ASH finished without captured samples. Check the native sampler failure details."}]
+      return [dict create available true jobid $jobid state $state \
+        sample_count 0 message $message \
         error [dict get $metadata error] chart {} sql {} sessions {} events {} \
         sql_text "" sql_stats {} event_sqls {} sql_overtime {} limitations {}]
     }
