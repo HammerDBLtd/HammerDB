@@ -1516,8 +1516,10 @@ proc vurun {} {
         try {
             if {$ash_requested} {
                 package require ashcapture 1.0
+                putscli "ASH: starting native capture for Job $ash_job"
                 ::ashcapture::start $ash_job
                 set ash_started 1
+                putscli "ASH: native collector ready; benchmark workload can begin"
             }
             remote_command [ concat vurun ]
             if { [ catch {run_virtual} message options ] } {
