@@ -77,20 +77,34 @@ transactional and historical time ranges use indexed access. The archive must be
 an on-disk Jobs database for worker connections to share it.
 
 Only Jobs with an ASH capture record show the **ASH** menu entry; schema
-Jobs and older Jobs without ASH do not. Drag across the chart to select a time
-window; double-click to restore the full captured range.
-Browser dragging sends pointer coordinates to Tcl; the shared desktop selection
-helper resolves native bucket/sample bounds and inclusive SQL predicates. The
-browser renders returned measurements and does not classify waits or calculate
-alternate ASH metrics. SQL, event and session details use the original cursor
-templates and shared calculations. The CPU reference is explicitly the
-**driver-host** CPU count, not database-host utilization.
+Jobs and older Jobs without ASH do not. The initial view covers the full
+capture of the selected benchmark Job, never ASH history from another Job.
+Drag across the chart to select a time window; double-click to reset to that
+Job's full capture. A collapsed **Custom time window** section optionally
+accepts local From/To timestamps for workloads run back-to-back, while still
+remaining within the selected Job's recording.
 
-While capture is active the view refreshes every 15 seconds. Once complete,
-the same archive supports browsing without a running database. Routes are
-`/jobs?jobid=ID&ash` and `/jobs?jobid=ID&ashdata`; selection bounds use finite
-Unix seconds. A request exceeding 250,000 selected raw samples asks for a narrower
+Browser dragging sends pointer coordinates to Tcl; the shared desktop selection
+helper resolves native bucket/sample bounds and inclusive SQL predicates.
+The chart and the lower SQL, wait and session activity bars use the original
+Desktop wait-class colours. Selecting a row requests only matching SQL, event or
+session samples using compound (jobid,source,identifier,sample_time) SQLite
+indexes, retaining the existing overview in the browser. The selected SQL
+activity-over-time plot belongs to that SQL ID only. The browser uses the native
+Desktop query templates and shared activity calculations. The CPU reference is
+explicitly the **driver-host** CPU count, not database-host utilization.
+Background events such as autovacuum may have a captured wait but no SQL text
+to display; this is reported as missing SQL text, not a failed ASH archive.
+
+While capture is active the view refreshes the benchmark summary every 15
+seconds, including when a row is selected. Once complete, the same archive
+supports browsing without a running database. Routes are
+`/jobs?jobid=ID&ash` and `/jobs?jobid=ID&ashdata`, with optional
+`detailonly=1` for indexed drill-downs. Selection bounds are finite Unix
+seconds. A request exceeding 250,000 selected raw samples asks for a narrower
 window rather than silently truncating data. All captured data remains stored.
+The two ASH infrastructure threads are explicitly excluded from TPROC-C
+virtual-user numbering so they cannot create nonexistent timing-profile slots.
 
 ## Validation and limits
 
