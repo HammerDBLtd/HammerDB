@@ -418,15 +418,25 @@
     }
     const formatStatus = report => String(report.state||'saved')+' · '+label(report.sample_count)+' captured samples'+
       (report.error?' · '+report.error:'')+(report.message?' · '+report.message:'');
-    async function load() {
+    const detailFields = ['sql_text','sql_io','sql_stats','sql_statistics','sql_overtime',
+      'event_sqls','session_details','sql_plan','plan_status'];
+    const hasDetail = () => ['sql_id','event_id','session_id'].some(key=>Object.prototype.hasOwnProperty.call(selection,key));
+    async function load(forceSummary=false) {
       if(timer)clearTimeout(timer);
       if(controller)controller.abort();
       const request=new AbortController();controller=request;
       const thisCall=++generation;
       const url=new URL(source);
       const parameter={begin:'begin',end:'end',pointer_begin:'pointerbegin',pointer_end:'pointerend',sql_id:'sqlid',event_id:'eventid',session_id:'sessionid'};
-      const detail = current && ['sql_id','event_id','session_id'].some(key=>Object.prototype.hasOwnProperty.call(selection,key));
-      if (detail) {
+      const detail = !forceSummary && current && hasDetail();
+      if (forceSummary) {
+        // Live chart refresh while a SQL/event/session is selected. Restore
+        // only the displayed Job window, not the selected drilldown query.
+        if (current && ['begin','end','pointer_begin','pointer_end'].some(key=>Object.prototype.hasOwnProperty.call(selection,key))) {
+          url.searchParams.set('begin',String(current.begin));
+          url.searchParams.set('end',String(current.end));
+        }
+      } else if (detail) {
         // The summary already resolved chart pointer selection to native
         // bounds. Do not reselect from an empty detail-only chart.
         url.searchParams.set('detailonly','1');
@@ -445,7 +455,13 @@
         if(thisCall!==generation)return;
         if(!reply.ok || (!report.available && report.error))throw new Error(report.error||'ASH report request failed.');
         if (detail) renderDetail(report);
-        else render(report);
+        else if (forceSummary && current && hasDetail() && report.available) {
+          // Preserve the existing selected-item detail while refreshing the
+          // chart and summary counts in a running benchmark.
+          for (const field of detailFields)
+            report[field] = current[field];
+          render(report);
+        } else render(report);
       } catch(error) {
         if(thisCall!==generation)return;
         const message = error.name==='AbortError'?'ASH request timed out.':String(error.message);
@@ -460,15 +476,13 @@
       }
       // Do not replace the summary chart, rows or percentages with the
       // selected SQL/event/session subset's own denominators.
-      const detailFields = ['sql_text','sql_io','sql_stats','sql_statistics','sql_overtime',
-        'event_sqls','session_details','sql_plan','plan_status'];
       for(const field of detailFields)
         current[field] = Object.prototype.hasOwnProperty.call(report,field) ? report[field] :
           field === 'sql_text'||field === 'sql_plan'||field === 'plan_status' ? '' : [];
       status.textContent = formatStatus(current);
       for(const kind of ['sql','events','sessions'])paintPane(kind,current[kind]);
       inspect();
-      if(current.state==='running')timer=setTimeout(load,15000);
+      if(current.state==='running')timer=setTimeout(()=>load(true),15000);
     }
     function render(report) {
       current=report;
@@ -493,7 +507,7 @@
       limitations.replaceChildren();
       for(const message of report.limitations||[])
         limitations.append(attr('li',{},message));
-      if(report.state==='running')timer=setTimeout(load,15000);
+      if(report.state==='running')timer=setTimeout(()=>load(hasDetail()),15000);
     }
     root.querySelector('[data-ash-range-apply]').addEventListener('click',()=>{
       const begin=Date.parse(rangeBegin.value)/1000, end=Date.parse(rangeEnd.value)/1000;
