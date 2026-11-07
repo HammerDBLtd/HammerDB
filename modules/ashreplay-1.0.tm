@@ -705,7 +705,7 @@ proc ::ashreplay::report {database samples stats metadata options} {
             set delta [delta $first $last [dict get $contexts $id bucket]]
         } else {set delta [delta [expr {ceil($begin)}] [expr {ceil($end)}] [dict get $contexts $id bucket]]}
         set chart [_get $metadata chart_rows {}]
-        set limitations [list {Execution plans are captured on a best-effort basis after benchmark timing completes; prepared or unsupported statements may not have a plan.}]
+        set limitations {}
         if {![dict exists $metadata chart_rows]} {
             # This is one recorded refresh only, never an invented historical grid.
             set chart [_query $id $handle $database ash $metadata $options]
@@ -735,20 +735,13 @@ proc ::ashreplay::report {database samples stats metadata options} {
             events [_shares $events $event_total event] sql_io $io \
             sql_text {} sql_stats {} sql_statistics {} event_sqls {} sql_overtime {} limitations $limitations]
         if {[dict exists $options sql_id]} {
-            # Desktop text, summary fallback and overtime queries intentionally
-            # have no selected-window predicate. Jobs supplies the matching SQL
-            # index history separately from its indexed window scan.
-            set sql_handle $handle; set sql_context $id
-            if {[dict exists $metadata sql_text_rows]} {
-                lassign [_open $database [dict get $metadata sql_text_rows] $stats $metadata $options] sql_context sql_handle
-            }
-            try {
-                set text_rows [_query $sql_context $sql_handle $database ash_sqltxt $metadata $options]
-                dict set result sql_stats [_query $sql_context $sql_handle $database ash_sqlstats $metadata $options]
-                dict set result sql_overtime [_query $sql_context $sql_handle $database sqlovertimeload $metadata $options]
-            } finally {
-                if {$sql_handle ne $handle} {$sql_handle close; dict unset contexts $sql_context}
-            }
+            # Use the already reconstructed, selected Job-window SQLite handle
+            # for all three original Desktop queries. Previously each SQL click
+            # read every occurrence of the SQL ID from disk and rebuilt a
+            # SECOND SQLite database, causing multi-second drilldown latency.
+            set text_rows [_query $id $handle $database ash_sqltxt $metadata $options]
+            dict set result sql_stats [_query $id $handle $database ash_sqlstats $metadata $options]
+            dict set result sql_overtime [_query $id $handle $database sqlovertimeload $metadata $options]
             set text_column [expr {$database eq "pg" ? "query" : "sql_text"}]
             if {[llength $text_rows]} {dict set result sql_text [_get [lindex $text_rows 0] $text_column ""]} else {dict set result sql_text ""}
             if {[llength [dict get $result sql_stats]]} {dict set result sql_statistics [stat_values $database [lindex [dict get $result sql_stats] 0]]}
