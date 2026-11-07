@@ -246,6 +246,15 @@ proc ::ashcapture::start {jobid} {
             if {[tsv::exists ashcapture error,$statekey]} {error [tsv::get ashcapture error,$statekey]}
             error "ASH instrumentation or capture startup failed before benchmark execution"
         }
+        # The workload determines VU positions from thread::names in each
+        # interpreter. Publish our coordinator/native IDs to every VU before
+        # running any workload script, so findvuposition never counts ASH
+        # background threads as virtual users or waits for their timings.
+        set ash_threads [threads]
+        if {[llength $ash_threads] != 2} {
+            error "ASH capture did not publish both background thread IDs"
+        }
+        tsv::set application ashcapture_threads $ash_threads
     } message options]} {
         catch {stop failed}
         return -options $options $message
@@ -261,6 +270,9 @@ proc ::ashcapture::stop {{state complete}} {
     set key $statekey
     set coordinator ""
     set statekey ""
+    # Clear this after workload VUs finish, before releasing ASH threads;
+    # disabled ASH and the next benchmark must use original VU accounting.
+    catch {tsv::unset application ashcapture_threads}
     set failure ""
     if {[thread::exists $worker]} {
         if {[catch {thread::send $worker [list ::ashcapture::shutdown $state]} message]} {
