@@ -1071,15 +1071,13 @@ wapp-subst {<div style='margin-top:18px;'>}
 wapp-subst {<div style='font-weight:600; margin-bottom:6px;'>Benchmark</div>}
 
 # TPROC-C
-wapp-subst {<div style='display:flex; gap:18px; align-items:flex-start; margin-top:6px;'>}
+wapp-subst {<div style='display:flex; gap:18px; align-items:center; flex-wrap:wrap; margin-top:6px;'>}
 wapp-subst {<div style='min-width:82px; font-weight:600;'>TPROC-C</div>}
 wapp-subst "<label style='cursor:pointer;'><input type='radio' name='bench' value='c_single'$bench_c_single onchange=\"document.getElementById('workload_hidden').value='C';document.getElementById('pipeline_hidden').value='single';\"> Single</label>"
 wapp-subst "<label style='cursor:pointer;'><input type='radio' name='bench' value='c_profile'$bench_c_profile onchange=\"document.getElementById('workload_hidden').value='C';document.getElementById('pipeline_hidden').value='profile';\"> Profile</label>"
 wapp-subst "<label style='cursor:pointer;'><input type='radio' name='bench' value='c_compare'$bench_c_compare onchange=\"document.getElementById('workload_hidden').value='C';document.getElementById('pipeline_hidden').value='compare';\"> Compare</label>"
-wapp-subst {<div style='display:flex; flex-direction:column; align-items:flex-start; gap:8px; margin-left:14px;'>}
-wapp-subst "<label style='cursor:pointer;'><input type='checkbox' name='io_intensive' value='1'$io_intensive_checked> Full Durability + I/O intensive</label>"
-wapp-subst "<label style='cursor:pointer;'><input type='checkbox' name='collect_ash' value='1'$collect_ash_checked> ASH Metrics</label>"
-wapp-subst {</div>}
+wapp-subst "<label style='cursor:pointer; white-space:nowrap; margin-left:14px;'><input type='checkbox' name='io_intensive' value='1'$io_intensive_checked> Full Durability + I/O intensive</label>"
+wapp-subst "<label style='cursor:pointer; white-space:nowrap;'><input type='checkbox' name='collect_ash' value='1'$collect_ash_checked> ASH Metrics</label>"
 wapp-subst {</div>}
 
 # TPROC-H
