@@ -1560,6 +1560,7 @@ proc vurun {} {
             }
         } on error {message options} {
             if {$ash_requested} {
+                putscli "ERROR: ASH-enabled benchmark job $ash_job failed: $message"
                 catch {hdbjobs eval {INSERT INTO JOBOUTPUT VALUES($ash_job, 0, $message)}}
             }
             return -options $options $message
