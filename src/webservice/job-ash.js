@@ -178,7 +178,7 @@
       }
       if (valid(report.driver_cpucount) && num(report.driver_cpucount)>0) {
         const n=num(report.driver_cpucount);
-        svg.append(svgNode('line', {x1:m.left,y1:Y(n),x2:WIDTH-m.right,y2:Y(n),stroke:'#c7d3e3','stroke-dasharray':'7 5'}));
+        svg.append(svgNode('line', {x1:m.left,y1:Y(n),x2:WIDTH-m.right,y2:Y(n),stroke:'var(--ash-chart-text)','stroke-dasharray':'7 5'}));
         svg.append(svgNode('text', {x:m.left+7,y:Y(n)-6}, 'Driver-host CPU reference: '+n));
       }
       const marker=svgNode('rect',{x:0,y:m.top,width:0,height:ph,fill:'#b9c9e7',opacity:'.18','pointer-events':'none'});
