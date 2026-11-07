@@ -215,6 +215,10 @@ raise an explicit error; replay never substitutes approximate grouping.
    after these pass, test against standalone MySQL and VillageSQL servers:
    they share existing provider paths but remain unverified live targets.
 
-Note: SQL plans are not retained by the existing historical capture; the
-Desktop's original EXPLAIN action requires a running database. This is an
-explicit limit of offline historical replay, not an alternate SQL planner.
+Note: the improved ASH collector attempts EXPLAIN (without ANALYZE) for
+up to 12 frequently sampled SQL IDs after benchmark timing has finished and
+before the source database is stopped. The plan and a capture status are
+saved in JOBASH for later offline replay. Statements with unresolved bind
+values or unsupported SQL are explicitly unavailable. Existing ASH archives
+from before this change cannot gain historical plans retroactively. Do not
+change the original Desktop SQL plan interaction.
