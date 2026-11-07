@@ -710,10 +710,21 @@ proc ::ashcapture::shutdown {state} {
             foreach cursor {capture_samples capture_stats ash} {${ns}::mon_execute $cursor}
             after_poll
             if {$failed eq "" && $state eq "complete"} {
-                # A best-effort optional post-run step; never mask successful
-                # timing collection or fail the ASH archive when EXPLAIN fails.
-                if {[catch {capture_plans} plan_error]} {
-                    catch {ashstore::update_metadata ::ashcapture::store $::ashcapture::jobid [dict create plan_capture_error $plan_error]}
+                # Do not declare ASH success for a completed benchmark when the
+                # native sampler has produced no rows. The benchmark's timing
+                # collection has already ended; this check cannot affect it.
+                set jobid $::ashcapture::jobid
+                set sample_count [::ashcapture::store onecolumn {
+                    SELECT count(*) FROM JOBASH WHERE jobid=$jobid AND source='samples'
+                }]
+                if {$sample_count == 0} {
+                    set failed "ASH $provider collected zero samples during a completed benchmark. Check the native event scheduler and hammerdb_ash.active_session_history on the database."
+                    puts stderr $failed
+                } else {
+                    # Plans are optional and cannot change benchmark results.
+                    if {[catch {capture_plans} plan_error]} {
+                        catch {ashstore::update_metadata ::ashcapture::store $jobid [dict create plan_capture_error $plan_error]}
+                    }
                 }
             }
         }
