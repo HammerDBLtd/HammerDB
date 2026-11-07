@@ -24,7 +24,9 @@ namespace eval ashstore {
                 CREATE INDEX IF NOT EXISTS JOBASH_TIME ON JOBASH(jobid,source,sample_time);
                 CREATE INDEX IF NOT EXISTS JOBASH_SQL ON JOBASH(jobid,sql_id,sample_time);
                 CREATE INDEX IF NOT EXISTS JOBASH_SOURCE_SQL ON JOBASH(jobid,source,sql_id,sample_time DESC);
+                CREATE INDEX IF NOT EXISTS JOBASH_SOURCE_EVENT ON JOBASH(jobid,source,event_name,sample_time);
                 CREATE INDEX IF NOT EXISTS JOBASH_SESSION ON JOBASH(jobid,session_id,sample_time);
+                CREATE INDEX IF NOT EXISTS JOBASH_SOURCE_SESSION ON JOBASH(jobid,source,session_id,sample_time);
                 CREATE TABLE IF NOT EXISTS JOBASHINFO (
                     jobid TEXT PRIMARY KEY,
                     database TEXT NOT NULL,
@@ -165,6 +167,22 @@ namespace eval ashstore {
         ::append query { ORDER BY sample_time, row_order, sample_key}
         $db eval $query row {lappend values $row(payload)}
         return $values
+    }
+
+    # Indexed retrieval for SQL/event/session drill-down. The SQL ID is kept
+    # TEXT throughout; converting PostgreSQL 64-bit IDs to JS numbers loses
+    # precision and must never happen here.
+    proc rows_matching {db jobid begin end column value} {
+        if {$column ni {sql_id event_name session_id}} {
+            error "Unsupported ASH drill-down selector"
+        }
+        if {![string is double -strict $begin] || ![string is double -strict $end] || $begin > $end} {
+            error "Invalid ASH drill-down window"
+        }
+        set results {}
+        set query "SELECT payload FROM JOBASH WHERE jobid=\$jobid AND source='samples' AND \"$column\"=\$value AND sample_time>=\$begin AND sample_time<=\$end ORDER BY sample_time,row_order,sample_key"
+        $db eval $query row {lappend results $row(payload)}
+        return $results
     }
 
     proc metadata {db jobid} {
