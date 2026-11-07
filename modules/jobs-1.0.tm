@@ -144,9 +144,10 @@ namespace eval jobs {
     dict set report captured_begin $run_begin
     dict set report captured_end $run_end
     dict set report detail_only $detail_only
-    # A single indexed row is sufficient as a historical SQL-text fallback.
-    # Never reconstruct a second in-memory database from all same-SQL samples.
-    if {[dict exists $options sql_id] && [dict get $report sql_text] eq ""} {
+    # Desktop SQL text uses the latest matching statement in the history,
+    # independently of the dragged analysis window. Use ONE indexed row from
+    # this Job instead of reloading the entire SQL-ID history into SQLite.
+    if {[dict exists $options sql_id]} {
       set sql_id [dict get $options sql_id]
       set latest_sql [hdbjobs onecolumn {
         SELECT payload FROM JOBASH
@@ -154,7 +155,8 @@ namespace eval jobs {
         ORDER BY sample_time DESC LIMIT 1
       }]
       if {$latest_sql ne ""} {
-        dict set report sql_text [::ashstore::getfirst $latest_sql {query sql_text} ""]
+        set text [::ashstore::getfirst $latest_sql {query sql_text} ""]
+        if {$text ne ""} {dict set report sql_text $text}
       }
     }
     dict set report sql_plan ""
@@ -169,6 +171,14 @@ namespace eval jobs {
       if {$record ne ""} {
         dict set report sql_plan [::ashstore::getfirst $record {plan_text} ""]
         dict set report plan_status [::ashstore::getfirst $record {plan_status} ""]
+      }
+    }
+    if {$detail_only} {
+      # The browser keeps the full summary while loading a selected item.
+      # Never resend chart points, SQL/session/event lists or Desktop query
+      # definitions on every click.
+      foreach key {chart sql sessions events original_sql limitations} {
+        dict unset report $key
       }
     }
     return $report
