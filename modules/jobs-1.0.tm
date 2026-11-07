@@ -21,8 +21,13 @@ namespace eval jobs {
 
   proc ash_report {jobid {options {}}} {
     package require ashstore
-    ::ashstore::init [namespace which hdbjobs]
+    # Capture initializes/migrates ASH storage. A historical web GET must not
+    # start a SQLite schema transaction or rebuild indexes on every click.
     set db [namespace which hdbjobs]
+    if {![$db onecolumn {SELECT 1 FROM sqlite_master WHERE type='table' AND name='JOBASHINFO'}]} {
+      return [dict create available false jobid $jobid state not_collected \
+        message "ASH was not collected for this Job." limitations {}]
+    }
     set metadata [::ashstore::metadata $db $jobid]
     if {$metadata eq ""} {
       return [dict create available false jobid $jobid state not_collected \
@@ -64,29 +69,45 @@ namespace eval jobs {
         [dict get $metadata server_timezone] [dict get $options pointer_begin] [dict get $options pointer_end]]
       set options [dict merge $options $window]
     }
-    set bucket [::ashstore::getfirst $metadata {bucket_secs} 15]
-    set begin [expr {max($first,$last-$bucket)}]
-    set end $last
+    # The Jobs archive is partitioned by jobid. By default, show the entire
+    # benchmark capture for this Job, not just its last 15-second bucket.
+    set run_begin [::ashstore::getfirst $metadata {run_start} $first]
+    set run_end [::ashstore::getfirst $metadata {run_end} $last]
+    if {![string is double -strict $run_begin]} {set run_begin $first}
+    if {![string is double -strict $run_end]} {set run_end $last}
+    set run_begin [expr {max($first,$run_begin)}]
+    set run_end [expr {min($last,$run_end)}]
+    if {$run_begin > $run_end} {set run_begin $first; set run_end $last}
+    set begin $run_begin
+    set end $run_end
     if {[dict exists $options begin]} {set begin [dict get $options begin]}
     if {[dict exists $options end]} {set end [dict get $options end]}
     if {$begin > $end} {error "ASH window start must be no later than its end"}
+    set begin [expr {max($first,$begin)}]
+    set end [expr {min($last,$end)}]
+    if {$begin > $end} {error "ASH time selection is outside this benchmark Job's ASH capture"}
     dict set options begin $begin
     dict set options end $end
     set count [hdbjobs onecolumn {SELECT count(*) FROM JOBASH WHERE jobid=$jobid
         AND source='samples' AND sample_time >= $begin AND sample_time <= $end}]
     if {$count > 250000} {error "ASH selection exceeds 250000 samples; choose a narrower window. All samples remain stored."}
     set samples [::ashstore::rows $db $jobid samples $begin $end]
-    set stats [::ashstore::rows $db $jobid sqlstats]
-    # Desktop SQL text can intentionally select the latest matching statement
-    # outside the dragged window. Retain that behavior using the SQL index.
-    if {[dict exists $options sql_id]} {
-      set sql_id [dict get $options sql_id]
-      set textrows {}
-      hdbjobs eval {SELECT payload FROM JOBASH WHERE jobid=$jobid AND source='samples'
-                   AND sql_id=$sql_id ORDER BY sample_time DESC} saved {
-        lappend textrows $saved(payload)
-      }
-      dict set metadata sql_text_rows $textrows
+    # Read only the most recent complete native statistics snapshot at/before
+    # the selected end, rather than concatenating every 60-second snapshot.
+    # The 15-second lookback also accommodates old PG rows whose clock-time
+    # metadata was recorded per native row instead of per polling cycle.
+    set latest_stat [hdbjobs onecolumn {
+      SELECT max(sample_time) FROM JOBASH
+      WHERE jobid=$jobid AND source='sqlstats' AND sample_time <= $end
+    }]
+    if {$latest_stat eq ""} {
+      set latest_stat [hdbjobs onecolumn {
+        SELECT max(sample_time) FROM JOBASH WHERE jobid=$jobid AND source='sqlstats'
+      }]
+    }
+    set stats {}
+    if {$latest_stat ne ""} {
+      set stats [::ashstore::rows $db $jobid sqlstats [expr {$latest_stat-15.0}] $latest_stat]
     }
     package require ashreplay
     set report [::ashreplay::report [dict get $metadata database] $samples $stats $metadata $options]
@@ -96,8 +117,21 @@ namespace eval jobs {
     dict set report error [dict get $metadata error]
     dict set report sample_count $sample_count
     dict set report selected_sample_count $count
-    dict set report captured_begin $first
-    dict set report captured_end $last
+    dict set report captured_begin $run_begin
+    dict set report captured_end $run_end
+    # A single indexed row is sufficient as a historical SQL-text fallback.
+    # Never reconstruct a second in-memory database from all same-SQL samples.
+    if {[dict exists $options sql_id] && [dict get $report sql_text] eq ""} {
+      set sql_id [dict get $options sql_id]
+      set latest_sql [hdbjobs onecolumn {
+        SELECT payload FROM JOBASH
+        WHERE jobid=$jobid AND source='samples' AND sql_id=$sql_id
+        ORDER BY sample_time DESC LIMIT 1
+      }]
+      if {$latest_sql ne ""} {
+        dict set report sql_text [::ashstore::getfirst $latest_sql {query sql_text} ""]
+      }
+    }
     dict set report sql_plan ""
     dict set report plan_status ""
     if {[dict exists $options sql_id]} {
