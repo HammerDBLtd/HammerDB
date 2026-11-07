@@ -37,20 +37,12 @@
     let active;
     let timer;
     let generation = 0;
-    let range;
     let display;
-    const inputDate = epoch => {
-      const date = new Date(epoch * 1000);
-      const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-      return local.toISOString().slice(0, 23);
-    };
     const setBounds = report => {
-      for (const name of ['begin', 'end']) {
-        const input = root.querySelector(`[data-bound="${name}"]`);
-        if (finite(report[name]) && document.activeElement !== input) input.value = inputDate(Number(report[name]));
-      }
-      bounds.textContent = finite(report.begin) && finite(report.end)
-        ? `${new Date(Number(report.begin) * 1000).toLocaleString()} — ${new Date(Number(report.end) * 1000).toLocaleString()}`
+      const selected = Object.hasOwn(selection, 'begin') || Object.hasOwn(selection, 'pointer_begin');
+      bounds.textContent = selected && finite(report.begin) && finite(report.end)
+        ? 'Selected: ' + new Date(Number(report.begin) * 1000).toLocaleString() +
+          ' — ' + new Date(Number(report.end) * 1000).toLocaleString()
         : '';
     };
     const table = (title, rows, drill) => {
@@ -95,7 +87,6 @@
       const left = Math.min(...points.map(row => Number(row.begin)));
       const right = Math.max(...points.map(row => Number(row.end)));
       if (!(right > left)) return;
-      range = [left, right];
       const stacked = new Map();
       let top = 1;
       const rects = points.map(row => {
@@ -176,6 +167,13 @@
         load();
       });
       svg.addEventListener('pointercancel', () => {from = undefined;});
+      svg.addEventListener('dblclick', () => {
+        if (!lastReport) return;
+        selection = finite(lastReport.captured_begin) && finite(lastReport.captured_end)
+          ? {begin: Number(lastReport.captured_begin), end: Number(lastReport.captured_end)}
+          : {};
+        load();
+      });
       display = () => paint(lastReport);
     };
     // Native ASH SQL-over-time rows already include their source AAS values.
@@ -226,7 +224,12 @@
     };
     const render = report => {
       lastReport = report; details.replaceChildren(); limitations.replaceChildren(); sqlText.textContent = '';
-      if (!report.available) {status.textContent = report.message || 'ASH was not collected for this Job.'; chart.replaceChildren(); return;}
+      root.classList.toggle('hdb-ash-unavailable', !report.available);
+      if (!report.available) {
+        status.textContent = report.message || 'ASH was not collected for this Job.';
+        chart.replaceChildren(); legend.replaceChildren(); bounds.textContent = '';
+        return;
+      }
       status.textContent = `${report.state || 'saved'} · ${report.sample_count ?? 'unknown'} captured samples`;
       if (report.error) status.textContent += ` · ${report.error}`;
       if (report.message) status.textContent += ` · ${report.message}`;
@@ -273,19 +276,6 @@
         status.textContent = error.name === 'AbortError' ? 'ASH request timed out. Retry the selection.' : error.message;
       } finally {clearTimeout(deadline);}
     }
-    root.querySelector('[data-action="reset"]').addEventListener('click', () => {
-      selection = finite(lastReport?.captured_begin) && finite(lastReport?.captured_end)
-        ? {begin: Number(lastReport.captured_begin), end: Number(lastReport.captured_end)} : {};
-      load();
-    });
-    root.querySelector('[data-action="select"]').addEventListener('click', () => {
-      const begin = Date.parse(root.querySelector('[data-bound="begin"]').value) / 1000;
-      const end = Date.parse(root.querySelector('[data-bound="end"]').value) / 1000;
-      if (!Number.isFinite(begin) || !Number.isFinite(end) || begin > end) {
-        status.textContent = 'Choose a valid start time no later than the end time.'; return;
-      }
-      selection = {begin, end}; load();
-    });
     window.addEventListener('pagehide', () => {clearTimeout(timer); active?.abort();});
     window.addEventListener('resize', () => {if (display) display();});
     load();

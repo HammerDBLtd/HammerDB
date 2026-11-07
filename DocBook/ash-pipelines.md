@@ -76,7 +76,9 @@ Migration is additive for existing Jobs databases, including the new
 transactional and historical time ranges use indexed access. The archive must be
 an on-disk Jobs database for worker connections to share it.
 
-Open a Job's **ASH** section. Drag across the chart, or use the time inputs.
+Only Jobs with an ASH capture record show the **ASH** menu entry; schema
+Jobs and older Jobs without ASH do not. Drag across the chart to select a time
+window; double-click to restore the full captured range.
 Browser dragging sends pointer coordinates to Tcl; the shared desktop selection
 helper resolves native bucket/sample bounds and inclusive SQL predicates. The
 browser renders returned measurements and does not classify waits or calculate
@@ -86,7 +88,7 @@ templates and shared calculations. The CPU reference is explicitly the
 
 While capture is active the view refreshes every 15 seconds. Once complete,
 the same archive supports browsing without a running database. Routes are
-`/jobs?jobid=ID&ash` and `/jobs?jobid=ID&ashdata`; selected manual bounds use finite
+`/jobs?jobid=ID&ash` and `/jobs?jobid=ID&ashdata`; selection bounds use finite
 Unix seconds. A request exceeding 250,000 selected raw samples asks for a narrower
 window rather than silently truncating data. All captured data remains stored.
 

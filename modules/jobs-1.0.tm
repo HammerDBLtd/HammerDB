@@ -2303,7 +2303,13 @@ proc wapp-page-jobs {} {
                         wapp-subst "<li><a href='%html($url)'>%html(Metrics)</a></li>\n"
                     }
                 }
-                ash { wapp-subst "<li><a href='%html($url)'>ASH</a></li>\n" }
+                ash {
+                    # Show ASH only for benchmark Jobs with a capture record.
+                    # Older Jobs, schema builds, and unrelated jobs have none.
+                    if {![catch {set ash_count [hdbjobs onecolumn {SELECT count(*) FROM JOBASHINFO WHERE jobid=$jobid}]}] && $ash_count > 0} {
+                        wapp-subst "<li><a href='%html($url)'>ASH</a></li>\n"
+                    }
+                }
                 timing {
                     set jr [getjobresult $jobid 1]
                     if {[string match "Geometric*" [lindex $jr 2]]} {
@@ -2827,12 +2833,8 @@ proc wapp-page-jobs {} {
 <section class="hdb-ash" data-hdb-ash="true" data-source="%html($ashurl)">
 <h2>Active Session History</h2>
 <p class="hdb-ash-status" role="status" aria-live="polite">Loading saved ASH samples…</p>
-<div class="hdb-ash-controls"><button type="button" data-action="reset">Show full captured range</button>
-<label>From <input data-bound="begin" type="datetime-local" step="0.001"></label>
-<label>To <input data-bound="end" type="datetime-local" step="0.001"></label>
-<button type="button" data-action="select">Analyse selected range</button></div>
-<p>Drag across the activity chart to select a time window. All activity calculations and drill-downs come from the existing database ASH queries.</p>
-<div class="hdb-ash-chart" tabindex="0" role="img" aria-label="ASH activity by event category. Use the time inputs for keyboard selection."></div>
+<p class="hdb-ash-hint">Drag across the activity chart to select a time window. Double-click the chart to restore the full captured range.</p>
+<div class="hdb-ash-chart" role="img" aria-label="ASH activity by event category. Drag to select time; double-click to reset."></div>
 <div class="hdb-ash-legend"></div><p class="hdb-ash-window"></p>
 <div class="hdb-ash-details"></div><pre class="hdb-ash-sql"></pre><ul class="hdb-ash-limitations"></ul>
 </section><script defer src="%url($B/job-ash.js)"></script>}
