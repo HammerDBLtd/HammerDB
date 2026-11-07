@@ -78,12 +78,23 @@
       if (kind === 'sql') id = field(row, 'queryid', 'digest', 'query_id');
       else if (kind === 'events') id = field(row, 'wait_event');
       else id = field(row, 'pid', 'processlist_id', 'session_id');
-      if (id === undefined) return;
+      // A NULL query ID is valid in the Desktop ASH SQL text cursor.
+      // Avoid silently ignoring click events on such rows.
+      if (kind === 'sql' && (id === null || id === undefined)) id = '';
+      if (id === undefined || id === null) {
+        status.textContent = 'Cannot open this '+kind+' row: no session/event identifier was captured.';
+        inspector.replaceChildren(attr('p',{'class':'hdb-ash-empty'},status.textContent));
+        return;
+      }
       selection = clearedWindow();
       selection[kind === 'sql' ? 'sql_id' : kind === 'events' ? 'event_id' : 'session_id'] = id;
       focus = kind === 'events' ? 'event' : kind === 'sessions' ? 'session' : 'sql';
       selectedID = String(id);
       view = focus === 'sql' ? 'sql-text' : focus;
+      const what = focus === 'event' ? 'wait event' : focus === 'session' ? 'session' : 'SQL statement';
+      inspectorTitle.textContent = 'Details · '+(id === '' ? 'NULL SQL ID' : String(id));
+      inspector.replaceChildren(attr('p',{'class':'hdb-ash-help'},'Loading '+what+' details from the saved ASH records…'));
+      status.textContent = 'Loading '+what+' details…';
       load();
     }
     function legendPaint(rows) {
@@ -394,7 +405,9 @@
         render(report);
       } catch(error) {
         if(thisCall!==generation)return;
-        status.textContent=error.name==='AbortError'?'ASH request timed out.':String(error.message);
+        const message = error.name==='AbortError'?'ASH request timed out.':String(error.message);
+        status.textContent=message;
+        inspector.replaceChildren(attr('p',{'class':'hdb-ash-empty'},'Unable to load ASH details: '+message));
       } finally {clearTimeout(deadline);}
     }
     function render(report) {
