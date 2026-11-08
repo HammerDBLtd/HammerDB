@@ -171,7 +171,7 @@
       for(const row of data.events.slice(0,40)){
         const raw=String(row.wait_event||row.event_name||row.event||row.name||'').trim();
         if(!/^[A-Za-z0-9 _./:+()-]{1,100}$/.test(raw))continue;
-        const count=Number(row.count??row.samples??row.sample_count);
+        const count=Number(row.total??row.count??row.samples??row.sample_count);
         events.push({name:raw,count:Number.isFinite(count)&&count>=0?count:null});
         if(events.length===8)break;
       }
