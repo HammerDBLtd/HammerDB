@@ -212,12 +212,12 @@ proc ::ashcapture::configuration {} {
     }
     return $result
 }
-proc ::ashcapture::start {jobid} {
+proc ::ashcapture::start {jobid {explicit 0}} {
     variable coordinator
     variable statekey
     variable module_file
     variable root
-    if {![enabled]} {return}
+    if {!$explicit && ![enabled]} {return}
     if {[active]} {error "An ASH Job is already active in this interpreter"}
     package require Thread
     package require ashstore 1.0
@@ -230,7 +230,17 @@ proc ::ashcapture::start {jobid} {
         ::tcl::tm::path add {*}$tm_paths
         source $module
     }} $module_file $::auto_path [::tcl::tm::path list]]
-    if {[catch {
+    # Issue #967: a nested event loop while TclReadLine stdin remains
+    # readable allows pressing Return to invoke the CLI recursively. Suspend
+    # only the existing stdin handler while checking native ASH readiness.
+    # Python mode has no TclReadLine handler, and Tk events still run normally.
+    set stdin_handler ""
+    set stdin_suspended 0
+    if {![catch {set stdin_handler [fileevent stdin readable]}] && $stdin_handler ne ""} {
+        fileevent stdin readable {}
+        set stdin_suspended 1
+    }
+    try {
         thread::send $coordinator $init
         thread::send -async $coordinator [list ::ashcapture::bootstrap $path $jobid $config $statekey]
         set deadline [expr {[clock milliseconds]+45000}]
@@ -255,9 +265,13 @@ proc ::ashcapture::start {jobid} {
             error "ASH capture did not publish both background thread IDs"
         }
         tsv::set application ashcapture_threads $ash_threads
-    } message options]} {
+    } on error {message options} {
         catch {stop failed}
         return -options $options $message
+    } finally {
+        if {$stdin_suspended} {
+            catch {fileevent stdin readable $stdin_handler}
+        }
     }
     return $jobid
 }
