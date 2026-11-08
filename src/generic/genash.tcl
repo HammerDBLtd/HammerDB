@@ -30,11 +30,16 @@ proc ashstart {args} {
     }
     # Browsing an archive in hammerdbws requires the same on-disk Jobs SQLite
     # file. Reject :memory: rather than silently losing all captured samples.
+    # CLI starts on Oracle by default. Validate the current selection before
+    # opening the collector so manual ASH gives an actionable error instead of
+    # a generic stack trace from ::ashcapture::configuration.
+    if {![info exists ::rdbms] || $::rdbms ni {PostgreSQL MySQL MariaDB VillageSQL}} {
+        set selected "(none)"
+        if {[info exists ::rdbms]} {set selected $::rdbms}
+        error "ASH cannot start for database '$selected'. Select PostgreSQL (dbset db pg), MySQL (dbset db mysql), MariaDB (dbset db maria), or VillageSQL (dbset db vsql) first."
+    }
     ::ashcapture::database_path
     ::ashcapture::configuration
-    if {[info exists ::rdbms] && $::rdbms ni {PostgreSQL MySQL MariaDB VillageSQL}} {
-        error "ASH is supported only on PostgreSQL, MySQL, MariaDB and VillageSQL"
-    }
     set ::ashcmd::starting 1
     try {
         if {[llength $args]} {
