@@ -1,0 +1,25 @@
+/* AI Assistant uses the existing HammerDB theme and standard navigation. */
+html .hdb-assistant-page {max-width:1000px; margin:0 auto}
+html .hdb-assistant-page h1 {font-size:2rem; margin:0 0 10px}
+html .hdb-assistant-page h2 {font-size:1.2rem; margin:0 0 12px}
+html .hdb-assistant-page .hdb-service-nav {display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+html .hdb-ai-muted {color:var(--muted);font-size:.92rem}
+html .hdb-ai-panel {background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px;margin:20px 0}
+html .hdb-ai-conversation {height:290px;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:14px;background:var(--bg);border:1px solid var(--border);border-radius:8px}
+html .hdb-ai-message {max-width:92%;padding:11px 14px;margin:0;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid var(--border);background:var(--raised);border-radius:9px}
+html .hdb-ai-message[data-speaker="user"] {align-self:flex-end;border-color:var(--accent)}
+html #hdb-ai-form {margin-top:14px}
+html #hdb-ai-form label {display:block;font-weight:600;margin-bottom:8px}
+html #hdb-ai-prompt {width:100%;min-height:100px;resize:vertical;box-sizing:border-box}
+html .hdb-ai-actions {display:flex;align-items:center;gap:14px;margin-top:12px;flex-wrap:wrap}
+html .hdb-ai-actions button {min-width:120px}
+html #hdb-ai-status {color:var(--muted)}
+html .hdb-ai-comparison {width:100%;border-collapse:collapse}
+html .hdb-ai-comparison th,html .hdb-ai-comparison td {border:1px solid var(--border);text-align:left;padding:9px;white-space:nowrap}
+html .hdb-ai-table-wrap {width:100%;overflow-x:auto;margin:12px 0}
+html .hdb-ai-warning {padding:10px;background:var(--raised);border:1px solid var(--border);border-radius:8px}
+html .hdb-ai-warning li {margin:4px 0}
+html .hdb-ai-links {display:flex;flex-wrap:wrap;gap:12px;margin:10px 0}
+html .hdb-ai-links a {overflow-wrap:anywhere}
+html #hdb-ai-report p,html #hdb-ai-sharing p {line-height:1.5}
+@media(max-width:720px) {html .hdb-ai-panel{padding:14px}html .hdb-ai-message{max-width:100%}html .hdb-ai-conversation{height:260px}}
