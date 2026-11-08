@@ -63,5 +63,7 @@
 .hdb-ash-overtime svg{display:block;width:100%;height:auto;min-height:150px}
 .hdb-ash-limitations{color:var(--ash-muted);font-size:.78rem;line-height:1.5;margin:.7rem 0;padding-left:1.2rem}
 .hdb-ash-unavailable .hdb-ash-chart,.hdb-ash-unavailable .hdb-ash-legend,.hdb-ash-unavailable .hdb-ash-window,.hdb-ash-unavailable .hdb-ash-range{display:none}
-@media(max-width:990px){.hdb-ash-workspace{grid-template-columns:1fr}.hdb-ash-summary{grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:minmax(180px,auto)}.hdb-ash-pane-rows{max-height:250px}.hdb-ash-inspector{height:clamp(420px,70vh,780px)}}
+/* Preserve the Desktop-style left summary / right drill-down layout at
+   laptop and tablet widths. Only stack for genuinely narrow/mobile screens. */
+@media(max-width:700px){.hdb-ash-workspace{grid-template-columns:minmax(0,1fr)}.hdb-ash-summary{grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(3,max-content)}.hdb-ash-pane-rows{max-height:210px}.hdb-ash-inspector{height:clamp(420px,70vh,780px)}}
 @media(max-width:650px){.hdb-ash-summary{grid-template-columns:1fr;grid-template-rows:none}.hdb-ash-pane-rows{max-height:180px}.hdb-ash-chart svg{min-height:220px}.hdb-ash-inspector{height:clamp(380px,65vh,690px)}.hdb-ash-inspector-body{min-height:0;padding:.65rem}}
