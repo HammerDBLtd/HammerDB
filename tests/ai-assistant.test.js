@@ -90,7 +90,8 @@ test('four-way comparison includes only genuine measured numbers',()=>{
   const compared=core.compareMany(summaries());
   assert.deepEqual(compared.order,['vsql','mysql','pg','maria']);
   assert.equal(compared.rows.find(r=>r.field==='nopm').values.mysql,300);
-  assert.equal(compared.comparable,true);
+  assert.equal(compared.comparable,false);
+  assert.ok(compared.caveats.some(message=>message.includes('cpumodel')));
   assert.equal(compared.reports.length,4);
 });
 test('comparability warns when hardware and workload settings differ',()=>{
