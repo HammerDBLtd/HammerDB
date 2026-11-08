@@ -151,3 +151,120 @@ proc wapp-page-ai-assistant {} {
        <p class="hdb-ai-muted">EC2 only. This tab does not send artifacts to an AI provider or handle API keys. No RDS orchestration.</p>
     </main></body></html>}
 }
+
+
+# BYOK OpenAI response: a per-request proxy only. The API key is passed in the
+# POST body, never stored in the database, HTML, JavaScript, files or logs.
+# All requests go only to the fixed OpenAI endpoint using validated TLS.
+proc ::hdb_ai::json_quote {value} {
+    set out "\""
+    foreach ch [split $value ""] {
+        scan $ch %c n
+        switch -- $n {
+            34 {append out {\"}}
+            92 {append out {\\}}
+            10 {append out {\n}}
+            13 {append out {\r}}
+            9  {append out {\t}}
+            default {
+                if {$n < 32} {
+                    append out [format {\\u%04X} $n]
+                } else {
+                    append out $ch
+                }
+            }
+        }
+    }
+    append out "\""
+    return $out
+}
+
+proc ::hdb_ai::chat_error {message {status {400 Bad Request}}} {
+    wapp-reply-code $status
+    wapp-mimetype {application/json; charset=utf-8}
+    wapp-reply-extra Cache-Control {no-store}
+    wapp-reply-extra X-Content-Type-Options nosniff
+    wapp-unsafe [format {{"error":%s}} [::hdb_ai::json_quote $message]]
+}
+
+proc wapp-page-ai-chat {} {
+    if {[wapp-param REQUEST_METHOD] ne "POST" || ![wapp-param SAME_ORIGIN 0]} {
+        ::hdb_ai::chat_error "Only same-origin POST requests are allowed." {403 Forbidden}
+        return
+    }
+    if {![string match -nocase "application/json*" [wapp-param CONTENT_TYPE ""]]} {
+        ::hdb_ai::chat_error "Expected JSON request."
+        return
+    }
+    set request [wapp-param CONTENT ""]
+    if {[string length $request] > 16000} {
+        ::hdb_ai::chat_error "Chat request too long." {413 Content Too Large}
+        return
+    }
+    if {[catch {package require json; set input [::json::json2dict $request]}] ||
+        [catch {dict get $input api_key} apiKey] ||
+        [catch {dict get $input prompt} prompt]} {
+        ::hdb_ai::chat_error "Invalid chat request."
+        return
+    }
+    # Accept user-created API keys only; never use an application fallback.
+    if {![regexp {^[A-Za-z0-9_-]{16,256}$} $apiKey] ||
+        ![string is print -strict $apiKey]} {
+        ::hdb_ai::chat_error "Enter a valid OpenAI API key."
+        return
+    }
+    if {[string length $prompt] < 1 || [string length $prompt] > 12000} {
+        ::hdb_ai::chat_error "Prompt is empty or too long."
+        return
+    }
+    if {[catch {package require http; package require tls}]} {
+        ::hdb_ai::chat_error "TLS support is not installed on this HammerDB instance." {503 Service Unavailable}
+        return
+    }
+    # A missing/invalid CA chain fails closed; no plaintext or insecure fallback.
+    ::http::register https 443 [list ::tls::socket -require 1 -servername api.openai.com]
+    set instructions {You are HammerDB's benchmark analysis assistant. Reply concisely and accurately using ONLY the measured benchmark evidence the user supplies. Separate observation from hypothesis. Never invent metrics, results, wait events, costs or completed jobs. The run queue and GitHub submissions are controlled by HammerDB and the user, not by your response. Never direct the user to run raw shell commands or disclose secrets. Recommend sharing reviewed real results to TPC-OSS, but never claim they were uploaded. ASH is optional and sampled waits are not proof of causation.}
+    set payload [format {{"model":"gpt-4.1-mini","instructions":%s,"input":%s,"max_output_tokens":650,"store":false}} \
+        [::hdb_ai::json_quote $instructions] [::hdb_ai::json_quote $prompt]]
+    set headers [list Authorization "Bearer $apiKey" Content-Type application/json Accept application/json]
+    if {[catch {
+        set tok [::http::geturl https://api.openai.com/v1/responses \
+            -method POST -headers $headers -query $payload -timeout 30000]
+    }]} {
+        ::hdb_ai::chat_error "Unable to reach the model over verified TLS." {502 Bad Gateway}
+        return
+    }
+    set code [::http::ncode $tok]
+    set response [::http::data $tok]
+    ::http::cleanup $tok
+    if {$code != 200} {
+        ::hdb_ai::chat_error "OpenAI refused this request (HTTP $code). Check the key and model access." {502 Bad Gateway}
+        return
+    }
+    if {[string length $response] > 500000 ||
+        [catch {set obj [::json::json2dict $response]}]} {
+        ::hdb_ai::chat_error "Invalid response from model." {502 Bad Gateway}
+        return
+    }
+    set answer ""
+    if {![catch {set blocks [dict get $obj output]}]} {
+        foreach block $blocks {
+            if {[catch {dict get $block type} kind] || $kind ne "message"} continue
+            if {[catch {dict get $block content} segments]} continue
+            foreach segment $segments {
+                if {[catch {dict get $segment type} type] || $type ne "output_text"} continue
+                if {![catch {dict get $segment text} t]} {append answer $t "\n"}
+            }
+        }
+    }
+    set answer [string trim $answer]
+    if {$answer eq ""} {
+        ::hdb_ai::chat_error "The model did not provide text. Please retry." {502 Bad Gateway}
+        return
+    }
+    wapp-mimetype {application/json; charset=utf-8}
+    wapp-reply-extra Cache-Control {no-store}
+    wapp-reply-extra X-Content-Type-Options nosniff
+    wapp-reply-extra Referrer-Policy no-referrer
+    wapp-unsafe [format {{"reply":%s}} [::hdb_ai::json_quote [string range $answer 0 5000]]]
+}
