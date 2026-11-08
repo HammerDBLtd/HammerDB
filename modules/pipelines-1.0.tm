@@ -1,5 +1,6 @@
 # pipelines-1.0.tm
 package provide pipelines 1.0
+package require remotebenchmark 1.0
 
 namespace eval pipelines {
     namespace export wapp-page-pipelines
@@ -78,6 +79,8 @@ namespace eval pipelines {
         wapp-subst "(function(){\n"
         wapp-subst "  var REFRESH_MS = $ms;\n"
         wapp-subst "  setInterval(function(){\n"
+        # Do not discard an in-progress remote when refreshing pipeline status.
+        wapp-subst {    if (document.querySelector('[data-remote-benchmark][data-dirty="true"]')) return;}
         wapp-subst "    var base = window.location.pathname + window.location.search;\n"
         wapp-subst {    base = base.replace(/([?&])_r=\\d+/, '$1').replace(/(\\?|&)$/, '');\n}
         wapp-subst {    var sep = (base.indexOf('?') >= 0) ? '&' : '?';\n}
@@ -849,6 +852,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         wapp-subst {<div class="hdb-page aut-wrap">}
 
+        ::remotebenchmark::render $B
+
         __render_last_if_any
 
 	   if {$windows_host} {
@@ -968,7 +973,9 @@ document.addEventListener('DOMContentLoaded', function () {
         wapp-subst {</div>}
         wapp-subst {</div>}
 
-        wapp-subst {<div class="hdb-section" style="width:100%; max-width:980px; margin:0 0 24px 0;">}
+        # Progressive enhancement: preserve the original controls if the remote
+        # script cannot load. A successful remote mount selects one workflow.
+        wapp-subst {<details id="existing-pipeline" class="hdb-section" open style="width:100%; max-width:980px; margin:0 0 24px 0;"><summary>Provision using existing Pipeline</summary>}
 
         # database chooser
         wapp-subst {<p><b>Database</b></p>}
@@ -1056,7 +1063,7 @@ wapp-unsafe "<input type='hidden' name='workload' id='workload_hidden' form='run
 wapp-unsafe "<input type='hidden' name='pipeline'  id='pipeline_hidden'  form='runform' value='[__html $pipeline_ui]'>"
 
 wapp-subst {<div style='margin-top:18px;'>}
-wapp-subst {<div style='font-weight:600; margin-bottom:6px;'>Benchmark</div>}
+wapp-subst {<div style='font-weight:600; margin-bottom:6px;'>Pipeline mode</div>}
 
 # TPROC-C
 wapp-subst {<div style='display:flex; gap:18px; align-items:center; margin-top:6px;'>}
@@ -1075,9 +1082,14 @@ wapp-subst {</div>}
 wapp-subst {</div>}
 
         wapp-subst {<div class="hdb-actions-left aut-actions" style="width:100%; max-width:980px; text-align:left;">}
+        wapp-subst {<p id="pipeline-live-notice" class="aut-mini"><strong>Live source-build Pipeline.</strong> Run Benchmark uses the configured CI and can provision a database and run benchmarks. This is separate from the remote simulation.</p>}
         wapp-subst {<button class="aut-btn" type="submit" form="runform">Run Benchmark</button>}
         wapp-subst {</div>}
+        wapp-subst {</form>}
+        }
+        wapp-subst {</details>}
 
+# Activity belongs to all Pipelines, regardless of the selected target path.
 wapp-subst {
 <div id="pipeline-activity" class="hdb-activity" style="width:100%; max-width:980px; box-sizing:border-box;">
   <details id="ci-log-panel">
@@ -1123,10 +1135,6 @@ wapp-subst "<script>
 })();
 </script>"
 
-        wapp-subst {</form>}
-        }
-
-        wapp-subst {</div>}
         wapp-subst {</div>}
         __page_tail
     }
