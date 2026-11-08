@@ -126,7 +126,7 @@
     return response.pipelines.slice(0,100).map(p=>{
       const id=Number(p.ci_id),db=database(p.database),
         profile=Number(p.profile_id),status=String(p.status||'').toUpperCase();
-      if (!Number.isSafeInteger(id)||id<=0||!db||!/^[A-Z_]{2,24}$/.test(status))return null;
+      if (!Number.isSafeInteger(id)||id<=0||!db||!/^[A-Z_ ]{2,40}$/.test(status))return null;
       return {ci_id:id,database:db,refname:String(p.refname||'').slice(0,180),
         pipeline:String(p.pipeline||'').toLowerCase(),status,
         profile_id:Number.isSafeInteger(profile)&&profile>0?profile:0,
@@ -221,10 +221,14 @@
     for(const key of CONFIG_KEYS) {
       const values=reports.map(s=>s.config[key]||'');
       if(new Set(values).size>1)caveats.push(key+': values differ or are missing');
+      else if(!values[0] && ['warehouses','virtual_users','duration_minutes'].includes(key))
+        caveats.push(key+': not recorded in these artifacts');
     }
     for(const key of SYSTEM_KEYS) {
       const values=reports.map(s=>s.system[key]||'');
       if(new Set(values).size>1)caveats.push('System '+key+': values differ or are missing');
+      else if(!values[0] && ['cloud_instance','cpumodel','cpucount'].includes(key))
+        caveats.push('System '+key+': not recorded for any run');
     }
     if(new Set(reports.map(s=>s.hdb_version)).size>1)caveats.push('HammerDB version differs');
     const names=[...new Set(reports.flatMap(s=>Object.keys(s.latency)))].slice(0,10);
