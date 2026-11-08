@@ -29,7 +29,7 @@ The desktop still uses its existing workers, queries, graph and table callbacks.
 
 ## Enable and execute
 
-Select **ASH Metrics** (immediately below the I/O option) in the existing Pipelines **Run
+Select **ASH Metrics** (immediately to the right of the I/O option) in the existing Pipelines **Run
 Benchmark** form. It defaults to unchecked and is supported for PostgreSQL,
 MySQL, MariaDB and VillageSQL. The existing supported Single, Profile and Compare
 workflows carry `collect_ash: 0|1` through the listener and `JOBCI` into the runner.
@@ -44,6 +44,66 @@ after `vurun` has created the exact benchmark Job ID, before its workload begins
 Each profile iteration and Compare side has its own Job and archive. Schema-only
 Jobs are not misidentified as benchmark runs. Capture errors and unsuccessful
 benchmark child exits fail the pipeline; acceptance/spawning is not completion.
+
+## Manual capture from Tcl, Python and Desktop GUI
+
+The existing Pipeline runner calls `::ashcapture::start` and
+`::ashcapture::stop` automatically for opted-in benchmark Jobs.
+The public `ashstart`, `ashstop`, and `ashstatus` commands are now
+available in both Tcl CLI and the Python CLI (through the existing
+`tclpy` bridge); they use **the same native ASH collector**, with no
+new sampler or modification to the Desktop ASH monitor.
+
+Tcl example (`./hammerdbcli tcl`), after configuring the database and
+loading a benchmark driver:
+
+```tcl
+ashstart
+ashstatus
+vurun
+ashstop
+ashstatus
+```
+
+Python example (`./hammerdbcli python`) uses Python command names exposed
+by the CLI bootstrap, not a separately maintained Python collector:
+
+```python
+ashstart()
+ashstatus()
+vurun()
+ashstop()
+ashstatus()
+```
+
+`ashstart` creates a persistent Job and reports its ID. A subsequent
+`vurun` reuses this Job ID, rather than creating a second unrelated Job.
+`ashstart existing_jobid` in Tcl can attach to a matching existing
+benchmark Job, provided that Job has not already recorded ASH.
+`ashstatus ?jobid?` reports a historical Job's state and sample count.
+Automatic Pipeline capture and manually started capture cannot be
+combined for the same run; `ashstop` finishes only manual capture.
+
+In the Desktop GUI, use **Options > ASH Capture > Start / Stop / Status**.
+Starting capture before running the benchmark registers the Job first;
+the GUI Run action reuses the same Job. Starting during an already
+running GUI benchmark attaches to that current Job. Stop after the run
+to flush the last native samples; exiting the GUI also flushes manual
+capture before killing threads. Existing Desktop Metrics and ASH display
+logic are not replaced.
+
+The Jobs database must be **on disk**, enabled, and shared with the
+HammerDB Web Service. In-memory Jobs storage is rejected rather than
+silently losing the archive. Browse the recorded Job via
+`/jobs?jobid=JOB_ID&ash` (or its ASH section in the Jobs UI).
+
+The two ASH infrastructure threads are excluded from CLI, GUI, Autopilot
+and TPROC-C timing virtual-user accounting. ASH startup temporarily
+suspends and then restores the interactive Tcl stdin fileevent during its
+readiness wait, preventing the recursive TclReadLine hang documented in
+TPC-Council/HammerDB issue #967. There is no new CLI `vwait` with an
+active stdin handler. The direct commands are currently restricted to
+PostgreSQL, MariaDB, MySQL and VillageSQL. **Oracle is phase 2.**
 
 PostgreSQL ASH builds and installs matching `pg_stat_statements` plus pinned
 pg_sentinel revision `145e73f738821b1fe36575c728635dd7aba26a6a`, preloads them,
