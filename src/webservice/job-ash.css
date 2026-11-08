@@ -15,14 +15,9 @@
 .hdb-ash-range-error{color:var(--error,#c03);margin:.3rem 0;font-size:.83rem}
 .hdb-ash-range-error:empty{display:none}
 .hdb-ash-chart{width:100%;min-height:268px;border:1px solid var(--ash-line);background:var(--ash-chart-bg);border-radius:5px;overflow:hidden}
-.hdb-ash-chart-modes{display:flex;justify-content:flex-end;align-items:center;gap:.25rem;padding:.35rem .55rem .1rem}
-.hdb-ash-chart-modes button{font:inherit;font-size:.78rem;color:var(--ash-chart-text);background:transparent;border:1px solid var(--ash-line);border-radius:4px;padding:.26rem .65rem;cursor:pointer}
-.hdb-ash-chart-modes button[aria-pressed="true"]{border-color:var(--ash-link);background:var(--ash-selected);font-weight:650}
-.hdb-ash-chart-modes button:focus-visible{outline:2px solid var(--ash-link);outline-offset:2px}
 .hdb-ash-area{stroke:none}
 .hdb-ash-chart svg{width:100%;height:auto;min-height:268px;display:block;touch-action:none;user-select:none;cursor:crosshair;color:var(--ash-chart-text)}
 .hdb-ash-chart text,.hdb-ash-overtime text{font:12px system-ui,sans-serif;fill:var(--ash-chart-text)}
-.hdb-ash-bar{opacity:.98}
 .hdb-ash-legend{display:flex;flex-wrap:wrap;align-items:center;gap:.65rem 1.05rem;margin:.55rem 0 .25rem;font-size:.82rem}
 .hdb-ash-legend-item{display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap}
 .hdb-ash-swatch{display:inline-block;width:.62rem;height:.62rem;border:1px solid rgba(255,255,255,.12)}
