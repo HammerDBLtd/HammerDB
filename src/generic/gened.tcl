@@ -578,6 +578,11 @@ proc populate_tree {rdbms bm icons iconalt} {
 
 proc ed_stop_gui {} {
     ed_wait_if_blocked
+    # Flush the manual ASH archive before terminating the infrastructure
+    # workers. Otherwise the Web Service could see a permanently RUNNING Job.
+    if {[llength [info commands ::ashcmd::manual_active]] && [::ashcmd::manual_active]} {
+        if {[catch {ashstop} message]} {puts stderr "ASH finalization failed: $message"}
+    }
     #close outstanding threads
     set thlist [ thread::names ]
     foreach ij $thlist {
