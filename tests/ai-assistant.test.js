@@ -122,3 +122,38 @@ test('browser files parse without executing external requests',()=>{
     assert.doesNotThrow(()=>new vm.Script(fs.readFileSync(file,'utf8'),{filename:name}));
   }
 });
+
+test('AI evidence includes measurements but excludes private host and SQL',()=>{
+  const reports=summaries();
+  const comparison=core.compareMany(reports);
+  const filtered=core.modelEvidence(comparison,[
+    {database:'pg',jobid:IDS[1],sample_count:50,
+      events:[{name:'IO:DataFileRead',count:22,sql_text:'SELECT secret FROM internal_table'}]}
+  ]);
+  const encoded=JSON.stringify(filtered);
+  assert.ok(encoded.includes('IO:DataFileRead'));
+  assert.ok(encoded.includes('sample_count'));
+  assert.ok(encoded.includes('nopm'));
+  assert.ok(!encoded.includes('do-not-export-host'));
+  assert.ok(!encoded.includes('internal_table'));
+  assert.ok(!encoded.includes('sql_text'));
+});
+test('AI endpoint is runtime BYOK, no server default key or insecure TLS',()=>{
+  const tcl=fs.readFileSync(path.join(__dirname,'..','src','generic','genaiassistant.tcl'),'utf8');
+  assert.match(tcl,/proc wapp-page-ai-chat/);
+  assert.match(tcl,/POST/);
+  assert.match(tcl,/SAME_ORIGIN/);
+  assert.match(tcl,/-require 1 -servername api\.openai\.com/);
+  assert.match(tcl,/"store":false/);
+  assert.ok(!/sk-[A-Za-z0-9_-]{24,}/.test(tcl));
+  assert.ok(!/curl\s+.*-k\b/.test(tcl));
+});
+test('browser starts the existing pipeline only after sequence confirmation',()=>{
+  const js=fs.readFileSync(path.join(__dirname,'..','src','webservice','ai-assistant.js'),'utf8');
+  assert.match(js,/Approve running these profiles in order/);
+  assert.match(js,/sequenceApproved=true/);
+  assert.match(js,/\&action=run/);
+  assert.match(js,/sameOrigin\(core\.pipelineUrl/);
+  assert.match(js,/OpenAI API key cleared/);
+  assert.ok(!/localStorage\.setItem\([^)]*api_key/i.test(js));
+});
