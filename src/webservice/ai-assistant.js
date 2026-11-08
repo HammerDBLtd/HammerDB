@@ -14,7 +14,7 @@
   const send=$('hdb-ai-send'), status=$('hdb-ai-status');
   const queueBox=$('hdb-ai-queue'), reportBox=$('hdb-ai-report'), sharing=$('hdb-ai-sharing');
   const KEY='hammerdb-ai-profiles-v1', MAX_STEPS=4;
-  let busy=false,lastComparison=null,polling=false,lastPipelines=[];
+  let busy=false,lastComparison=null,polling=false,lastPipelines=[],pipelineIndexReady=false;
   let steps=loadSteps();
 
   function node(tag,text,cls) {
@@ -188,9 +188,7 @@
     talk((added?'Prepared ':'Updated ')+steps.length+' EC2 TPROC-C profile step(s) in order: '+
       steps.map(s=>core.DATABASES[s.database]).join(' → ')+
       '. Enter a Git ref for each database, then open the first planned step in Pipelines to confirm its start.');
-    if(/\b(?:core|socket|96)\b/i.test(prompt.value)){
-      talk('Socket/core count is determined by the existing EC2 benchmark configuration, not by the webhook JSON.');
-    }
+    talk('Existing EC2 settings control socket/core count; it is not part of this webhook request. I/O intensive is '+(request.io_intensive?'ON':'OFF')+'.');
   }
   function renderQueue(){
     queueBox.replaceChildren();
@@ -214,8 +212,11 @@
         label.append(input);card.append(label);
         card.append(node('p','TPROC-C PROFILE · I/O-intensive '+(s.io_intensive?'ON':'OFF'),'hdb-ai-muted'));
         if(index===0||steps[index-1].state==='complete'){
-          const link=anchor('Open reviewed profile in Pipelines','#',true);
+          const link=anchor('Open reviewed profile in Pipelines',core.validRef(s.ref)?sameOrigin(core.pipelineUrl(s.database,s.ref,s.io_intensive)):'#',true);
           link.addEventListener('click',event=>{
+            if(!pipelineIndexReady){
+              event.preventDefault();talk('Check pipeline status first so this sequence cannot mistake a previous run for a new one.');return;
+            }
             if(!core.validRef(s.ref)){
               event.preventDefault();talk('Please enter a valid Git ref for '+core.DATABASES[s.database]+'.');input.focus();return;
             }
@@ -223,7 +224,8 @@
             link.href=sameOrigin(core.pipelineUrl(s.database,s.ref,s.io_intensive));
             const highest=lastPipelines.reduce((max,p)=>Math.max(max,p.ci_id),0);
             s.after_ci_id=highest;s.state='awaiting-submit';
-            saveSteps();renderQueue();
+            saveSteps();
+            setTimeout(renderQueue,0);
             talk('Review '+core.DATABASES[s.database]+' '+s.ref+' in Pipelines and confirm Run Benchmark there. I will check the existing pipeline status.');
           });
           card.append(link);
@@ -261,7 +263,7 @@
     polling=true;
     try{
       const pipelines=core.normalizePipelines(await readJson(sameOrigin('ai-pipelines'),256*1024));
-      lastPipelines=pipelines;
+      lastPipelines=pipelines;pipelineIndexReady=true;
       let changed=false;
       for(let i=0;i<steps.length;i++){
         const s=steps[i];
@@ -294,7 +296,7 @@
       if(changed){saveSteps();renderQueue();}
       if(steps.length>=2&&steps.every(s=>s.state==='complete')){
         const reports=steps.map(s=>s.summary);
-        if(!lastComparison||lastComparison.reports.some((r,i)=>r.jobid!==reports[i].jobid)){
+        if(!lastComparison||lastComparison.reports.length!==reports.length||lastComparison.reports.some((r,i)=>r.jobid!==reports[i].jobid)){
           const comp=core.compareMany(reports);
           renderComparison(comp);talk('All four-engine sequence steps that were requested are complete. I compared the actual job artifacts and recommend reviewing them for TPC-OSS sharing.');
         }
@@ -311,12 +313,19 @@
     } else {
       const jobs=core.normalizeJobList(await readJson(sameOrigin('ai-jobs'),256*1024));
       for(const db of desired){
-        let found=null;
-        for(const j of jobs.filter(item=>item.database===db&&item.benchmark==='TPROC-C'&&item.profile_id>0).slice(0,14)){
-          try{found=await loadJob(j.jobid);break;}catch(_){}
+        const candidates=jobs.filter(item=>item.database===db&&item.benchmark==='TPROC-C'&&item.profile_id>0);
+        if(!candidates.length)throw Error('No '+core.DATABASES[db]+' TPROC-C profile jobs were found.');
+        const recentProfile=candidates[0].profile_id;
+        let best=null,highest=-1;
+        for(const j of candidates.filter(item=>item.profile_id===recentProfile).slice(0,40)){
+          try{
+            const summary=await loadJob(j.jobid);
+            const nopm=summary.metrics.find(m=>m.field==='nopm')?.value;
+            if(nopm!=null&&nopm>highest){highest=nopm;best=summary;}
+          }catch(_){}
         }
-        if(!found)throw Error('No completed '+core.DATABASES[db]+' TPROC-C profile artifact found.');
-        selected.push(found);
+        if(!best)throw Error('No completed '+core.DATABASES[db]+' TPROC-C artifacts for its latest profile.');
+        selected.push(best);
       }
     }
     const comp=core.compareMany(selected);
