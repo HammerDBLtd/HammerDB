@@ -272,7 +272,7 @@
         if(!ci)ci=core.matchingPipeline(pipelines,s);
         if(!ci)continue;
         if(!s.ci_id){s.ci_id=ci.ci_id;s.state='running';changed=true;talk(core.DATABASES[s.database]+' pipeline '+ci.ci_id+' was submitted. Checking for completion.');}
-        if(['FAILED','ERROR','CANCELLED','CANCELED','ABORTED'].includes(ci.status)){
+        if(ci.status.endsWith('FAILED')||['ERROR','CANCELLED','CANCELED','ABORTED'].includes(ci.status)){
           s.state='failed';changed=true;
           talk(core.DATABASES[s.database]+' pipeline '+ci.ci_id+' ended with '+ci.status+'. The sequence will not start another run.');
           break;
