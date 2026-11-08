@@ -982,6 +982,10 @@ proc vucreate {} {
 proc vudestroy {} {
     global threadscreated threadsbytid vustatus AVUC opmode
     set ash_cancelling [expr {[info commands ::ashcapture::active] ne "" && [::ashcapture::active]}]
+    if {[llength [info commands ::ashcmd::manual_active]] && [::ashcmd::manual_active]} {
+        # An explicitly started ASH session outlives VUs until ashstop.
+        set ash_cancelling 0
+    }
     if {$ash_cancelling && [info exists ::jobid]} {set ::ash_cancelled_job $::jobid}
     try {
     if {[expr [ llength [ threadnames_without_tcthread ] ] - 1 ] > 0} {
@@ -1488,6 +1492,16 @@ proc cli_ash_requested {} {
 proc vurun {} {
     global threadscreated
     set ash_requested [cli_ash_requested]
+    set manual_ash 0
+    if {[llength [info commands ::ashcmd::manual_active]]} {
+        set manual_ash [::ashcmd::manual_active]
+    }
+    if {$manual_ash && $ash_requested} {
+        error "ASH was started manually; do not enable HAMMERDB_ASH automatic capture for the same benchmark"
+    }
+    if {[info exists ::ashcmd::starting] && $::ashcmd::starting} {
+        error "ASH is still starting; retry vurun once ashstatus reports running"
+    }
     if { ![ info exists threadscreated ] && [expr [ llength [ threadnames_without_tcthread ] ] - 1 ] > 0} {
         if {$ash_requested} {error "Cannot start ASH-enabled benchmark with Virtual Users already active"}
         putscli "Error: Cannot call vurun with Virtual Users already active"
@@ -1498,10 +1512,14 @@ proc vurun {} {
         error "ASH collection requires enabled persistent Jobs storage"
     }
 
-    set jobid [guid]
-    if { [jobmain $jobid run] eq 1 } {
-        dict set jsondict error message "Jobid already exists or error in creating jobid in JOBMAIN table"
-        if {$ash_requested} {error "ASH collection cannot start without a valid benchmark Job ID"}
+    if {$manual_ash} {
+        set jobid [::ashcmd::current_job]
+    } else {
+        set jobid [guid]
+        if { [jobmain $jobid run] eq 1 } {
+            dict set jsondict error message "Jobid already exists or error in creating jobid in JOBMAIN table"
+            if {$ash_requested} {error "ASH collection cannot start without a valid benchmark Job ID"}
+        }
     }
 
     # Creating VUs only prepares idle workers; ASH readiness precedes execution.
