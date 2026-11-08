@@ -199,11 +199,15 @@
 
   function shareComparison(compare){
     sharing.replaceChildren();
-    sharing.append(node('p','Sharing your measured result helps everyone benchmark database performance. We recommend contributing. You decide what to publish; review every artifact for hostnames, internal identifiers and other sensitive information first.'));
+    sharing.append(node('p','Sharing measured results helps everyone benchmark database performance. We recommend contributing. First review each original JSON for private system details, then download it unchanged and choose that file on the existing TPC-OSS submission page. GitHub sign-in and PR review are still required.'));
     for(const s of compare.reports){
       const line=node('p');
       line.append(node('span',core.DATABASES[s.database]+' ('+s.jobid+'): '));
       line.append(anchor('Review original JSON',sameOrigin(core.artifactUrl(s.jobid))));
+      line.append(document.createTextNode(' · '));
+      const download=anchor('Download original JSON for PR',sameOrigin(core.artifactUrl(s.jobid)));
+      download.download='hammerdb-'+s.database+'-'+s.jobid+'.json';
+      line.append(download);
       sharing.append(line);
     }
     makeLinks(sharing,[{label:'Continue to TPC-OSS — propose GitHub PR',url:core.SUBMIT_URL,external:true}]);
