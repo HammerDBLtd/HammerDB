@@ -463,8 +463,33 @@ proc wappInt-http-readable-unsafe {chan} {
   upvar #0 wappInt-$chan W wapp wapp
   if {![dict exists $W .toread]} {
     # If the .toread key is not set, that means we are still reading
-    # the header
-    set line [string trimright [gets $chan]]
+    # the header.  Sniff the first byte before line-oriented parsing:
+    # a TLS ClientHello sent to this HTTP-only socket has no HTTP line
+    # ending, and parsing its binary contents can flood stderr with errors.
+    if {![dict exists $W .http-first-byte]} {
+      set first [read $chan 1]
+      if {$first eq ""} {
+        if {[eof $chan]} {wappInt-close-channel $chan}
+        return
+      }
+      binary scan $first H2 hex
+      if {$hex eq "16" || $hex eq "80"} {
+        # TLS handshake (or legacy SSLv2 framing): silently reject.
+        wappInt-close-channel $chan
+        return
+      }
+      dict set W .http-first-byte $first
+    }
+    set count [gets $chan line]
+    if {$count<0} {
+      if {[eof $chan]} {wappInt-close-channel $chan}
+      return
+    }
+    if {[dict exists $W .http-first-byte]} {
+      set line "[dict get $W .http-first-byte]$line"
+      dict unset W .http-first-byte
+    }
+    set line [string trimright $line]
     set n [string length $line]
     if {$n>0} {
       if {[dict get $W .header]=="" || [regexp {^\s+} $line]} {
