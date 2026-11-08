@@ -290,10 +290,10 @@
       if(s.state==='planned'){
         const label=node('label','Git ref for '+core.DATABASES[s.database]);
         const input=node('input');
-        input.type='text';input.maxLength=190;input.value=s.ref;
+        input.type='text';input.maxLength=190;input.value=s.ref;input.disabled=sequenceApproved;
         input.placeholder='refs/tags/... or refs/heads/...';
         input.autocomplete='off';
-        input.addEventListener('input',()=>{s.ref=input.value.trim();saveSteps();});
+        input.addEventListener('input',()=>{s.ref=input.value.trim();sequenceApproved=false;saveSteps();});
         label.append(input);card.append(label);
         card.append(node('p','TPROC-C PROFILE · I/O-intensive '+(s.io_intensive?'ON':'OFF'),'hdb-ai-muted'));
         if(!sequenceApproved && (index===0||steps[index-1].state==='complete')){
@@ -318,7 +318,7 @@
       }else if(s.state==='failed'){
         const button=node('button','Retry step');
         button.type='button';
-        button.addEventListener('click',()=>{s.state='planned';s.ci_id=0;s.profile_id=0;s.summary=null;saveSteps();renderQueue();});
+        button.addEventListener('click',()=>{sequenceApproved=false;s.state='planned';s.ci_id=0;s.profile_id=0;s.summary=null;saveSteps();renderQueue();});
         card.append(button);
       }else if(s.state==='complete'&&s.summary){
         const nopm=s.summary.metrics.find(m=>m.field==='nopm');
