@@ -31,8 +31,15 @@
   };
   const field = (row, ...names) => {
     if (!row || typeof row !== 'object') return undefined;
-    const match = Object.keys(row).find(key => names.some(n => n.toLowerCase().replace(/_/g, '') === key.toLowerCase().replace(/_/g, '')));
-    return match === undefined ? undefined : row[match];
+    // Prefer requested field names, not JSON property insertion order. MySQL
+    // wait-event rows contain both native wait_event_type and classified group;
+    // the latter must win so Mutex/Cond/RWLock bars match the chart palette.
+    for (const name of names) {
+      const wanted = name.toLowerCase().replace(/_/g, '');
+      const match = Object.keys(row).find(key => key.toLowerCase().replace(/_/g, '') === wanted);
+      if (match !== undefined) return row[match];
+    }
+    return undefined;
   };
   const label = value => value == null || value === '' ? 'Unavailable' : String(value);
   const timestamp = epoch => new Date(Number(epoch) * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
