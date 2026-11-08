@@ -9,6 +9,7 @@ package require Thread
 package require sqlite3
 package require ashstore
 package require ashcapture
+source [file join $root src generic genash.tcl]
 
 set fixture [makeDirectory ashcapture-packages]
 set connector [open [file join $fixture connector.tcl] w]
@@ -130,6 +131,39 @@ test capture-inmemory {live capture cannot pretend SQLite memory is shared} -bod
     hdbjobs close
     string match {*on-disk Jobs*} $message
 } -result 1
+
+# The default CLI database is Oracle. Manual ASH must explain how to select a
+# supported provider before invoking the collector's configuration.
+test capture-manual-default-oracle {ASH explains unsupported default database} -setup {
+    proc job_disable_check {} {return 0}
+    set ::rdbms Oracle
+    set ::bm TPC-C
+} -body {
+    set failed [catch {ashstart} message]
+    list $failed [string match {*database 'Oracle'*dbset db mysql*} $message] [::ashcapture::active]
+} -cleanup {
+    rename job_disable_check {}
+} -result {1 1 0}
+test capture-manual-no-database {ASH explains absent database selection} -setup {
+    proc job_disable_check {} {return 0}
+    unset -nocomplain ::rdbms
+    set ::bm TPC-C
+} -body {
+    set failed [catch {ashstart} message]
+    list $failed [string match {*database '(none)'*dbset db mysql*} $message] [::ashcapture::active]
+} -cleanup {
+    rename job_disable_check {}
+} -result {1 1 0}
+test capture-manual-valid-database {supported selection passes the guard and checks archive path} -setup {
+    proc job_disable_check {} {return 0}
+    set ::rdbms MySQL
+    set ::bm TPC-C
+} -body {
+    set failed [catch {ashstart} message]
+    list $failed [string match {*on-disk Jobs database*} $message] [::ashcapture::active]
+} -cleanup {
+    rename job_disable_check {}
+} -result {1 1 0}
 
 foreach provider {mysql maria vsql} {
     test capture-native-$provider {existing native worker/loop persist exact fields, chart and stats} -setup {
