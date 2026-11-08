@@ -1859,6 +1859,9 @@ proc switchmode {{assignmode "current"} {assignid 0} {assignhost "localhost"} ar
 }
 
 proc quit {} {
+    if {[llength [info commands ::ashcmd::manual_active]] && [::ashcmd::manual_active]} {
+        if {[catch {ashstop} message]} {puts stderr "ASH finalization failed: $message"}
+    }
     puts "Shutting down HammerDB CLI"
     if [expr {[llength [info procs TclReadLine::doExit]] > 0}] {
     #in Tcl TclReadLine is loaded call exit
