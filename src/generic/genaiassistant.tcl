@@ -92,7 +92,7 @@ proc wapp-page-ai-pipelines {} {
                 maria - pg - mysql - vsql {set clean_db [string tolower $dbprefix]}
                 default {continue}
             }
-            if {![regexp {^[A-Za-z_]{2,24}$} $status]} continue
+            if {![regexp {^[A-Za-z_ ]{2,40}$} $status]} continue
             set clean_status [string toupper $status]
             set clean_pipeline [string tolower $pipeline]
             if {$clean_pipeline ne "profile"} continue
