@@ -1,0 +1,30 @@
+name: AI Assistant tests
+
+on:
+  push:
+    branches: [feature/6.2-ai-assistant]
+  pull_request:
+    paths:
+      - 'src/generic/genaiassistant.tcl'
+      - 'src/webservice/ai-assistant*'
+      - 'tests/ai-assistant.test.js'
+      - 'hammerdbws'
+      - 'src/generic/genws.tcl'
+      - '.github/workflows/ai-assistant-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run offline tests (no API key required)
+        run: node --test tests/ai-assistant.test.js
