@@ -96,9 +96,12 @@ async function main() {
       assert.equal(report.sample_count, 10);
       assert.ok(report.chart.length >= 2, 'fixture must exercise at least two native chart refreshes');
       await content.locator('.hdb-ash-chart svg').waitFor();
-      const titles = await content.locator('.hdb-ash-chart svg rect title').allTextContents();
-      assert.equal(titles.length, report.chart.length);
-      assert.deepEqual(titles, report.chart.map(row => `${row.category}: ${row.aas} AAS`), 'browser changed source categories or AAS');
+      assert.ok(await content.locator('.hdb-ash-chart svg path.hdb-ash-area').count(),
+        'default chart must show wait-class step areas');
+      const tooltips = await content.locator('.hdb-ash-chart svg rect.hdb-ash-chart-hitbox title').allTextContents();
+      assert.ok(tooltips.length, 'step-area chart must expose source wait-class AAS tooltips');
+      assert.ok(tooltips.every(text => text.includes('Total: ') && text.includes(' AAS')),
+        'area tooltip must expose stacked AAS totals');
       assert.ok((await content.locator('.hdb-ash-chart svg').boundingBox()).height > 100);
       assert.equal(await section('SQL activity').locator('tbody tr').count(), report.sql.length);
       await nativeDetails('ASH-HISTORY', report, url);
@@ -185,6 +188,47 @@ async function main() {
       assert.deepEqual(saved.report.sql, completed.report.sql);
       await page.screenshot({path: path.join(artifacts, 'ash-live-completed.png'), fullPage: true});
     });
+    await check('stacked step areas use summed AAS, palette and client-only Area/Bars toggle', async () => {
+      const {report} = await open('ASH-HISTORY');
+      assert.equal(await content.locator('[data-ash-chart-mode="area"]').getAttribute('aria-pressed'), 'true');
+      const paths=content.locator('.hdb-ash-chart svg path.hdb-ash-area');
+      assert.ok(await paths.count(),'default timeline must contain step-area paths');
+      assert.equal(await content.locator('.hdb-ash-chart svg rect.hdb-ash-bar').count(),0);
+      const areas=await paths.evaluateAll(nodes=>nodes.map(node=>({
+        name:node.getAttribute('data-ash-group'),fill:node.getAttribute('fill'),d:node.getAttribute('d')
+      })));
+      assert.ok(areas.every(item=>item.d.startsWith('M ') && item.d.endsWith(' Z') && item.d.includes(' L ')),
+        'area geometry must use stepped paths, not curves');
+      assert.ok(areas.some(item=>item.name==='CPU' && item.fill==='#00FF00'),
+        'PG CPU area must retain native green');
+      assert.ok(areas.some(item=>item.name==='IO' && item.fill==='#004AE7'),
+        'PG I/O area must retain native blue');
+      const totals=new Map();
+      for(const row of report.chart){
+        const id=row.begin+':'+row.end;
+        totals.set(id,(totals.get(id)||0)+Number(row.aas));
+      }
+      const ymax=Math.max(...(await content.locator('.hdb-ash-chart svg > text').allTextContents())
+        .map(Number).filter(Number.isFinite));
+      assert.ok(ymax>=Math.max(...totals.values()),'stacked y-axis must fit the combined AAS');
+      const before=requests.length;
+      await content.locator('[data-ash-chart-mode="bars"]').click();
+      assert.equal(await content.locator('[data-ash-chart-mode="bars"]').getAttribute('aria-pressed'),'true');
+      assert.ok(await content.locator('.hdb-ash-chart svg rect.hdb-ash-bar').count());
+      assert.equal(await content.locator('.hdb-ash-chart svg path.hdb-ash-area').count(),0);
+      await content.locator('[data-ash-chart-mode="area"]').click();
+      assert.ok(await content.locator('.hdb-ash-chart svg path.hdb-ash-area').count());
+      assert.equal(await content.locator('.hdb-ash-chart svg rect.hdb-ash-bar').count(),0);
+      assert.equal(requests.length,before,'mode toggle must not fetch/recompute ASH source data');
+      await page.screenshot({path:path.join(artifacts,'ash-stacked-step-area.png'),fullPage:true});
+    });
+    await check('unsampled ASH intervals leave separate area paths rather than invented waits', async () => {
+      const {report}=await open('ASH-GAP');
+      assert.ok(report.chart.length>=2,'gap fixture must capture separated chart buckets');
+      const pieces=content.locator('.hdb-ash-chart svg path.hdb-ash-area[data-ash-group="CPU"]');
+      assert.equal(await pieces.count(),2,'CPU areas must not bridge unsampled time');
+      assert.equal(await content.locator('.hdb-ash-chart svg rect.hdb-ash-chart-hitbox').count(),2);
+    });
     await check('MySQL native wait events use classified colours, not grey fallbacks', async () => {
       const {report} = await open('ASH-MYSQL');
       assert.equal(report.available, true);
@@ -208,10 +252,25 @@ async function main() {
         assert.ok(style?.toLowerCase().includes('background-color:'+colour.toLowerCase()),
           native+' should use '+group+' colour '+colour+', got '+style);
       }
-      const chart = await content.locator('.hdb-ash-chart svg rect.hdb-ash-bar').evaluateAll(nodes =>
-        nodes.map(rect => ({name: rect.querySelector('title')?.textContent || '', fill: rect.getAttribute('fill')})));
-      assert.ok(chart.some(row => row.name.startsWith('Mutex: ') && row.fill?.toLowerCase() === '#f06eaa'),
-        'chart must use the same pink Mutex palette');
+      const areas=await content.locator('.hdb-ash-chart svg path.hdb-ash-area').evaluateAll(nodes =>
+        nodes.map(path=>({name:path.getAttribute('data-ash-group'),fill:path.getAttribute('fill')})));
+      for(const [,group,colour] of examples){
+        assert.ok(areas.some(item=>item.name===group && item.fill?.toLowerCase()===colour.toLowerCase()),
+          group+' area must use same native palette as wait-event bars');
+        const swatch=content.locator('.hdb-ash-legend-item').filter({hasText:group}).locator('.hdb-ash-swatch');
+        assert.ok((await swatch.getAttribute('style'))?.toLowerCase()
+          .includes('background-color:'+colour.toLowerCase()),group+' legend colour must match');
+      }
+      const before=requests.length;
+      await content.locator('[data-ash-chart-mode="bars"]').click();
+      const chartBars=await content.locator('.hdb-ash-chart svg rect.hdb-ash-bar').evaluateAll(nodes =>
+        nodes.map(rect=>({name:rect.getAttribute('data-ash-group'),fill:rect.getAttribute('fill')})));
+      for(const [,group,colour] of examples){
+        assert.ok(chartBars.some(item=>item.name===group && item.fill?.toLowerCase()===colour.toLowerCase()),
+          group+' overlaid chart bar must retain the same colour');
+      }
+      await content.locator('[data-ash-chart-mode="area"]').click();
+      assert.equal(requests.length,before,'mode switching should be client-only');
       await page.screenshot({path: path.join(artifacts, 'ash-mysql-wait-colours.png'), fullPage: true});
     });
     assert.deepEqual(errors, [], 'uncaught browser errors');
