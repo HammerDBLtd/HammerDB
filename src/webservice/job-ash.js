@@ -67,7 +67,7 @@
     };
     let selection = {}, current = null, controller = null, timer = null, generation = 0;
     let view = 'sql-text', focus = 'sql', count = {sql: 50, events: 50, sessions: 50};
-    let selectedID = null, chartMode = 'area';
+    let selectedID = null;
     const colorsFor = () => current && current.database === 'pg' ? PG_COLORS : MYSQL_COLORS;
     const key = name => String(name || 'Other').toLowerCase().replace(/_/g, '');
     const colorFor = name => (colorsFor().find(entry => key(entry[0]) === key(name)) || [null, '#8693A9'])[1];
@@ -143,18 +143,6 @@
         legend.replaceChildren();
         return;
       }
-      const modes = attr('div', {'class':'hdb-ash-chart-modes',role:'group','aria-label':'ASH timeline display'});
-      for (const [mode, name] of [['area','Area'],['bars','Bars']]) {
-        const button = attr('button', {'type':'button','data-ash-chart-mode':mode,
-          'aria-pressed':String(chartMode===mode)}, name);
-        button.addEventListener('click', () => {
-          if (chartMode===mode) return;
-          chartMode=mode;
-          paintChart(current || report);
-        });
-        modes.append(button);
-      }
-      chart.append(modes);
       legendPaint(points);
       const left = Math.min(...points.map(r => Number(r.begin)));
       const right = Math.max(...points.map(r => Number(r.end)));
@@ -194,9 +182,7 @@
       const X = t => m.left + (t-left)/(right-left)*pw;
       const Y = value => m.top + ph - value/top*ph;
       const svg = svgNode('svg', {viewBox:'0 0 '+WIDTH+' '+HEIGHT,role:'img',
-        'aria-label':chartMode==='area'
-          ? 'Average active sessions, continuous stacked wait-class steps'
-          : 'Average active sessions, overlapping wait-class bars'});
+        'aria-label':'Average active sessions, stacked wait-class area'});
       for (let i=0; i<=5; i++) {
         const value = top*i/5, y = Y(value);
         svg.append(svgNode('line', {x1:m.left,y1:y,x2:WIDTH-m.right,y2:y,stroke:'currentColor','stroke-opacity':'.18','stroke-dasharray':'2 5'}));
@@ -207,70 +193,56 @@
         svg.append(svgNode('line', {x1:x,y1:m.top,x2:x,y2:Y(0),stroke:'currentColor','stroke-opacity':'.12','stroke-dasharray':'2 5'}));
         svg.append(svgNode('text', {x:x,y:HEIGHT-11,'text-anchor':i===0?'start':i===6?'end':'middle'}, timestamp(t)));
       }
-      if (chartMode==='bars') {
-        // Optional original BLT-style overlaid bars for Desktop comparison.
-        for (const bucket of buckets) {
-          const x=X(bucket.start),width=Math.max(1,X(bucket.end)-x-.45);
-          for (const [cls,aas] of [...bucket.groups].sort((a,b)=>b[1]-a[1])) {
-            if (aas<=0) continue;
-            const rect=svgNode('rect',{x,y:Y(aas),width,height:Math.max(0,Y(0)-Y(aas)),
-              fill:colorFor(cls),'class':'hdb-ash-bar','data-ash-group':cls});
-            rect.append(svgNode('title',{},cls+': '+round(aas)+' AAS · '+
-              timestamp(bucket.start)+'–'+timestamp(bucket.end)));
-            svg.append(rect);
+      // A single filled step path per class and contiguous sampled run.
+      // Vertical transitions preserve the exact AAS; no curve interpolation.
+      const areaPath = parts => {
+        const commands=['M '+X(parts[0].start)+' '+Y(parts[0].upper)];
+        for (let i=0;i<parts.length;i++) {
+          const part=parts[i];
+          if (i) {
+            commands.push('L '+X(part.start)+' '+Y(parts[i-1].upper));
+            commands.push('L '+X(part.start)+' '+Y(part.upper));
           }
+          commands.push('L '+X(part.end)+' '+Y(part.upper));
         }
-      } else {
-        // A single filled step path per class and contiguous sampled run.
-        // Vertical transitions preserve the exact AAS; no curve interpolation.
-        const areaPath = parts => {
-          const commands=['M '+X(parts[0].start)+' '+Y(parts[0].upper)];
-          for (let i=0;i<parts.length;i++) {
-            const part=parts[i];
-            if (i) {
-              commands.push('L '+X(part.start)+' '+Y(parts[i-1].upper));
-              commands.push('L '+X(part.start)+' '+Y(part.upper));
-            }
-            commands.push('L '+X(part.end)+' '+Y(part.upper));
+        for (let i=parts.length-1;i>=0;i--) {
+          const part=parts[i];
+          commands.push('L '+X(part.end)+' '+Y(part.lower));
+          commands.push('L '+X(part.start)+' '+Y(part.lower));
+        }
+        return commands.join(' ')+' Z';
+      };
+      for (const cls of classes) {
+        let run=[];
+        const flush = () => {
+          if (run.some(part => part.aas>0)) {
+            const path=svgNode('path',{'class':'hdb-ash-area','data-ash-group':cls,
+              d:areaPath(run),fill:colorFor(cls)});
+            path.append(svgNode('title',{},cls+' wait-class activity'));
+            svg.append(path);
           }
-          for (let i=parts.length-1;i>=0;i--) {
-            const part=parts[i];
-            commands.push('L '+X(part.end)+' '+Y(part.lower));
-            commands.push('L '+X(part.start)+' '+Y(part.lower));
-          }
-          return commands.join(' ')+' Z';
+          run=[];
         };
-        for (const cls of classes) {
-          let run=[];
-          const flush = () => {
-            if (run.some(part => part.aas>0)) {
-              const path=svgNode('path',{'class':'hdb-ash-area','data-ash-group':cls,
-                d:areaPath(run),fill:colorFor(cls)});
-              path.append(svgNode('title',{},cls+' wait-class activity'));
-              svg.append(path);
-            }
-            run=[];
-          };
-          for (const bucket of timeline) {
-            if (run.length && bucket.start>run[run.length-1].end+0.000001) flush();
-            const aas=Math.max(0,bucket.groups.get(cls)||0);
-            const lower=bucket.lower.get(cls);
-            run.push({start:bucket.start,end:bucket.end,lower,upper:lower+aas,aas});
-          }
-          flush();
-        }
-        // Hit targets expose exact class/total AAS and preserve SVG dragging.
         for (const bucket of timeline) {
-          const detail=[...bucket.groups].filter(([,aas])=>aas>0)
-            .map(([cls,aas])=>cls+': '+round(aas)).join(' · ');
-          const hit=svgNode('rect',{'class':'hdb-ash-chart-hitbox',x:X(bucket.start),
-            y:m.top,width:Math.max(0,X(bucket.end)-X(bucket.start)),height:ph,
-            fill:'transparent','pointer-events':'all'});
-          hit.append(svgNode('title',{},timestamp(bucket.start)+'–'+timestamp(bucket.end)+
-            ' · Total: '+round(bucket.total)+' AAS'+(detail?' · '+detail:'')));
-          svg.append(hit);
+          if (run.length && bucket.start>run[run.length-1].end+0.000001) flush();
+          const aas=Math.max(0,bucket.groups.get(cls)||0);
+          const lower=bucket.lower.get(cls);
+          run.push({start:bucket.start,end:bucket.end,lower,upper:lower+aas,aas});
         }
+        flush();
       }
+      // Hit targets expose exact class/total AAS and preserve SVG dragging.
+      for (const bucket of timeline) {
+        const detail=[...bucket.groups].filter(([,aas])=>aas>0)
+          .map(([cls,aas])=>cls+': '+round(aas)).join(' · ');
+        const hit=svgNode('rect',{'class':'hdb-ash-chart-hitbox',x:X(bucket.start),
+          y:m.top,width:Math.max(0,X(bucket.end)-X(bucket.start)),height:ph,
+          fill:'transparent','pointer-events':'all'});
+        hit.append(svgNode('title',{},timestamp(bucket.start)+'–'+timestamp(bucket.end)+
+          ' · Total: '+round(bucket.total)+' AAS'+(detail?' · '+detail:'')));
+        svg.append(hit);
+      }
+
       if (valid(report.driver_cpucount) && num(report.driver_cpucount)>0) {
         const n=num(report.driver_cpucount);
         svg.append(svgNode('line', {x1:m.left,y1:Y(n),x2:WIDTH-m.right,y2:Y(n),stroke:'var(--ash-chart-text)','stroke-dasharray':'7 5'}));
