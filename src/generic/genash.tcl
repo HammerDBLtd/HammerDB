@@ -97,6 +97,14 @@ proc ashstatus {args} {
         set chosen [lindex $args 0]
     } elseif {$::ashcmd::jobid ne ""} {
         set chosen $::ashcmd::jobid
+    } elseif {[llength [info commands ::ashcapture::active]] && [::ashcapture::active]} {
+        # Automatic Pipeline capture is active in this interpreter. Do not
+        # accidentally report a previous manual ASH Job from lastjob.
+        if {[info exists ::jobid] && $::jobid ne ""} {
+            set chosen $::jobid
+        } else {
+            return "ASH running under automatic benchmark control"
+        }
     } else {
         set chosen $::ashcmd::lastjob
     }
