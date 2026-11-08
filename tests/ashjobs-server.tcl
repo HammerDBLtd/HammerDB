@@ -79,6 +79,28 @@ proc fixture_samples {{extra 0}} {
     }
     return $rows
 }
+# MySQL native names are deliberately stored as wait_event_type before the
+# replay adds the normalized group. Browser colours must not depend on this
+# property order or fall back to grey for most MySQL wait families.
+proc fixture_mysql_samples {} {
+    set rows {}
+    foreach {offset type} {
+        1  CPU
+        4  wait/synch/mutex/innodb/trx_mutex
+        7  wait/synch/cond/sql/COND_queue_state
+        10 wait/synch/rwlock/innodb/index_tree_rw_lock
+        13 wait/io/table/sql/handler
+        16 wait/io/socket/sql/client_connection
+        19 idle/waiting
+    } {
+        set epoch [expr {$::fixture_base+$offset}]
+        lappend rows [dict create ash_time [clock format $epoch -timezone UTC -format {%Y-%m-%d %H:%M:%S}] \
+            _epoch $epoch processlist_id 11 digest d1 digest_text {SELECT 1} \
+            sql_text {SELECT 1} user bench host localhost command Query \
+            wait_event_type $type wait_event $type]
+    }
+    return $rows
+}
 proc fixture_stats {} {
     set rows {}
     foreach id {q1 q2 q3 q4} {
@@ -96,13 +118,13 @@ proc fixture_stats {} {
     }
     return $rows
 }
-proc fixture_chart {samples {last 30}} {
+proc fixture_chart {samples {last 30} {database pg}} {
     set points {}
     foreach refresh {15 30 45} {
         if {$refresh > $last} break
         set metadata [fixture_metadata $refresh]
         set options [dict create begin $::fixture_base end [expr {$::fixture_base+$refresh}]]
-        foreach point [::ashreplay::query pg ash $samples {} $metadata $options] {
+        foreach point [::ashreplay::query $database ash $samples {} $metadata $options] {
             dict set point _epoch [expr {$::fixture_base+$refresh}]
             lappend points $point
         }
@@ -124,6 +146,13 @@ proc fixture_initialize {} {
         ::ashstore::append $db $id chart [fixture_chart $samples]
         if {$id eq "ASH-HISTORY"} {::ashstore::finish $db $id complete}
     }
+    $db eval {INSERT INTO JOBMAIN(jobid,db,bm,jobdict)
+        VALUES('ASH-MYSQL','MySQL','TPC-C','fixture synthetic')}
+    set mysql_samples [fixture_mysql_samples]
+    ::ashstore::begin $db ASH-MYSQL mysql [fixture_metadata]
+    ::ashstore::append $db ASH-MYSQL samples $mysql_samples
+    ::ashstore::append $db ASH-MYSQL chart [fixture_chart $mysql_samples 30 mysql]
+    ::ashstore::finish $db ASH-MYSQL complete
 }
 fixture_initialize
 
