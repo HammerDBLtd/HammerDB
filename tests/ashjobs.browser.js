@@ -185,6 +185,35 @@ async function main() {
       assert.deepEqual(saved.report.sql, completed.report.sql);
       await page.screenshot({path: path.join(artifacts, 'ash-live-completed.png'), fullPage: true});
     });
+    await check('MySQL native wait events use classified colours, not grey fallbacks', async () => {
+      const {report} = await open('ASH-MYSQL');
+      assert.equal(report.available, true);
+      assert.equal(report.database, 'mysql');
+      const examples = [
+        ['wait/synch/mutex/innodb/trx_mutex', 'Mutex', '#F06EAA'],
+        ['wait/synch/cond/sql/COND_queue_state', 'Cond', '#C02800'],
+        ['wait/synch/rwlock/innodb/index_tree_rw_lock', 'RWLock', '#9F9371'],
+        ['wait/io/table/sql/handler', 'Table_IO', '#5C440B'],
+        ['wait/io/socket/sql/client_connection', 'Network', '#FFD700']
+      ];
+      for (const [native, group, colour] of examples) {
+        const row = report.events.find(item => item.wait_event_type === native);
+        assert.ok(row, 'missing native MySQL wait: '+native);
+        assert.equal(row.group, group, native+' classified incorrectly by the replay');
+        assert.ok(Object.keys(row).indexOf('wait_event_type') < Object.keys(row).indexOf('group'),
+          'test must preserve native name before derived group in JSON');
+        const event = content.locator('[data-rows="events"] .hdb-ash-row').filter({hasText: native});
+        assert.equal(await event.count(), 1, 'missing visible event row: '+native);
+        const style = await event.locator('.hdb-ash-activity-slice').getAttribute('style');
+        assert.ok(style?.toLowerCase().includes('background-color:'+colour.toLowerCase()),
+          native+' should use '+group+' colour '+colour+', got '+style);
+      }
+      const chart = await content.locator('.hdb-ash-chart svg rect.hdb-ash-bar').evaluateAll(nodes =>
+        nodes.map(rect => ({name: rect.querySelector('title')?.textContent || '', fill: rect.getAttribute('fill')})));
+      assert.ok(chart.some(row => row.name.startsWith('Mutex: ') && row.fill?.toLowerCase() === '#f06eaa'),
+        'chart must use the same pink Mutex palette');
+      await page.screenshot({path: path.join(artifacts, 'ash-mysql-wait-colours.png'), fullPage: true});
+    });
     assert.deepEqual(errors, [], 'uncaught browser errors');
     assert.equal(await content.evaluate(() => window.__ashXSS), undefined);
     console.log(`PASS: ${checks} ASH browser integration checks; synthetic native rows, real Wapp/SQLite/replay/Chromium`);
