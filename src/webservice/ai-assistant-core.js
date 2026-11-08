@@ -34,10 +34,12 @@
     const ids = [...text.matchAll(/\b([A-Fa-f0-9]{16,40})\b/g)]
       .map(match => match[1]).filter(validJobId).slice(0,2);
     const benchmark = /\btproc[\s-]*h\b/i.test(text) ? 'TPROC-H' : 'TPROC-C';
-    if (/\b(compare|comparison|versus|vs\.?|against|difference|differ|better)\b/i.test(text) || ids.length === 2)
-      return {kind:'compare',databases:databases.length?databases:['pg','maria'],ids,benchmark};
-    if (/\b(run|start|profile|benchmark|execute)\b/i.test(text))
+    const wantsRun=/\b(run|start|profile|benchmark|execute)\b/i.test(text);
+    const wantsCompare=/\b(compare|comparison|versus|vs\.?|against|difference|differ|better)\b/i.test(text);
+    if (wantsRun && ids.length<2)
       return {kind:'profile',databases:databases.length?databases:['pg','maria'],benchmark};
+    if (wantsCompare || ids.length===2)
+      return {kind:'compare',databases:databases.length?databases:['pg','maria'],ids,benchmark};
     if (/\b(share|submit|publish|github|leaderboard|contribute)\b/i.test(text))
       return {kind:'share',databases,benchmark};
     return {kind:'help',databases,benchmark};

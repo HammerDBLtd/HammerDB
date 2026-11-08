@@ -146,10 +146,11 @@
     box.append(table);report.append(box);
     const nopm=comparison.rows.find(item=>item.field==='nopm');
     if (nopm && nopm.percentage!==null) {
-      const leader=nopm.percentage>0?'MariaDB':nopm.percentage<0?'PostgreSQL':'Neither database';
-      report.append(element('p',leader+' recorded '+Math.abs(nopm.percentage).toFixed(1)+
-        '% '+(nopm.percentage===0?'difference':'higher NOPM than the other run')+
-        ' in these specific runs. NOPM is the primary TPROC-C comparison metric.'));
+      const direction=nopm.percentage>0?'higher':nopm.percentage<0?'lower':'the same';
+      const detail=nopm.percentage===0?'the same NOPM':Math.abs(nopm.percentage).toFixed(1)+'% '+direction+' NOPM';
+      report.append(element('p','MariaDB recorded '+detail+
+        ' than PostgreSQL in these particular runs (relative to PostgreSQL NOPM).'+
+        ' NOPM is the primary TPROC-C comparison metric.'));
     } else if (comparison.rows.length) {
       report.append(element('p','The table shows measured values. For TPROC-H duration metrics, lower is generally better.'));
     }

@@ -1399,20 +1399,20 @@ proc wapp-page-hdb-theme.js {} {
     const navigation = document.createElement('nav');
     navigation.setAttribute('aria-label', 'Workspace navigation');
     const links = [
-      ['Jobs', '/jobs', ''], ['Pipelines', '/pipelines', ''],
+      ['Jobs', '/jobs', ''], ['Pipelines', '/pipelines', ''], ['AI Assistant', '/ai-assistant', ''],
       ['TPROC-C', '/jobs', '#jobs-tprocc'], ['Profiles', '/jobs', '#jobs-profiles'],
       ['TPROC-H', '/jobs', '#jobs-tproch'], ['Activity', '/jobs', '#jobs-activity'],
       ['Environment', '/jobs', '#jobs-env']
     ];
     links.forEach(([label, path, hash], index) => {
-      if (index === 2) {
+      if (index === 3) {
         const caption = document.createElement('p');
         caption.className = 'hdb-sidebar-caption';
         caption.textContent = 'Job views'; navigation.append(caption);
       }
       const a = document.createElement('a');
       a.textContent = label; a.href = base + path + hash;
-      if (!hash && ((isPipelines && path === '/pipelines') || (!isPipelines && path === '/jobs'))) a.setAttribute('aria-current', 'page');
+      if (!hash && new URL(a.href, location.href).pathname === location.pathname) a.setAttribute('aria-current', 'page');
       navigation.append(a);
     });
     sidebar.append(navigation);
