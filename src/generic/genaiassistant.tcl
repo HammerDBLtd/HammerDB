@@ -125,8 +125,11 @@ proc wapp-page-ai-assistant {} {
        <header class="hdb-service-header"><div class="hdb-service-nav">
           <a href="%url($B/jobs)">Jobs</a><a href="%url($B/pipelines)">Pipelines</a><a href="%url($B/ai-assistant)" aria-current="page">AI Assistant</a>
        </div><h1>AI Assistant</h1></header>
-       <p class="hdb-ai-muted">Compare existing EC2 TPROC-C performance profiles for MariaDB, PostgreSQL, MySQL and VillageSQL, using actual HammerDB Jobs artifacts.</p>
+       <p class="hdb-ai-muted">Run and compare existing TPROC-C performance profiles for MariaDB, PostgreSQL, MySQL and VillageSQL, using actual HammerDB Jobs artifacts.</p>
        <section class="hdb-ai-panel" aria-label="Assistant conversation">
+          <label for="hdb-ai-key">Your OpenAI API key (optional until you ask for AI analysis)</label>
+          <div class="hdb-ai-actions"><input id="hdb-ai-key" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Paste your own key; never stored"><button id="hdb-ai-key-clear" type="button">Clear key</button></div>
+          <p class="hdb-ai-muted">The key stays in this tab only. For a remote Web Service, use HTTPS; localhost is also supported. No HammerDB-supplied key or fallback.</p>
           <div id="hdb-ai-conversation" class="hdb-ai-conversation" role="log" aria-live="polite" aria-relevant="additions"></div>
           <form id="hdb-ai-form"><label for="hdb-ai-prompt">Your question</label>
              <textarea id="hdb-ai-prompt" rows="3" maxlength="4000" required placeholder="Run profiles on MariaDB, PostgreSQL, MySQL and VillageSQL, then compare results"></textarea>
@@ -135,9 +138,9 @@ proc wapp-page-ai-assistant {} {
        </section>
        <section class="hdb-ai-panel" aria-labelledby="hdb-ai-queue-heading">
           <h2 id="hdb-ai-queue-heading">Profile sequence</h2>
-          <p class="hdb-ai-muted">The assistant checks existing pipeline completion and moves to the next prepared step. Confirm each start in HammerDB Pipelines. No automatic run starts or hidden execution.</p>
+          <p class="hdb-ai-muted">Approve the whole sequence once. The assistant then starts each profile via the existing Pipelines interface and checks completion before starting the next. No new benchmark runner.</p>
           <div id="hdb-ai-queue"><p class="hdb-ai-muted">Ask to run two or more profiles to prepare a sequence.</p></div>
-          <div class="hdb-ai-actions"><button type="button" id="hdb-ai-refresh">Check pipeline status</button><button type="button" id="hdb-ai-clear">Clear sequence</button></div>
+          <div class="hdb-ai-actions"><button type="button" id="hdb-ai-run-all">Approve and run sequence</button><button type="button" id="hdb-ai-refresh">Check pipeline status</button><button type="button" id="hdb-ai-clear">Clear sequence</button></div>
        </section>
        <section class="hdb-ai-panel" aria-labelledby="hdb-ai-report-heading">
           <h2 id="hdb-ai-report-heading">Measured comparison</h2>
@@ -148,7 +151,7 @@ proc wapp-page-ai-assistant {} {
           <p>Contributing reviewed results helps everyone compare real database performance. Share is recommended by default, but nothing is published without your review and a GitHub pull request.</p>
           <div id="hdb-ai-sharing"><a href="https://tpc-council.github.io/hammerdb-results/submit.html" target="_blank" rel="noopener noreferrer">Review and submit via GitHub</a></div>
        </section>
-       <p class="hdb-ai-muted">EC2 only. This tab does not send artifacts to an AI provider or handle API keys. No RDS orchestration.</p>
+       <p class="hdb-ai-muted">Runs existing HammerDB pipelines on the configured host (local or EC2). Phase 1 covers existing open-source databases; RDS is outside this tab. AI receives only a short, filtered benchmark summary when enabled; never the original artifact or API key.</p>
     </main></body></html>}
 }
 
