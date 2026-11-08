@@ -28,8 +28,8 @@ Chart AAS weights observations using their native sampling period and the observ
 time span plus one period, including partial windows. SQL-over-time also weights
 MySQL-family observations by five seconds and uses a common timestamp for all
 wait classes in a bucket, preventing category-dependent divisors. Wait-event
-shares and raw sample counts are unchanged. Archived Jobs retain their originally captured chart values; the
-new chart normalization applies to future chart refreshes.
+shares and raw sample counts are unchanged. Archived Jobs retain their originally
+captured chart values; the new chart normalization applies to future refreshes.
 Desktop Tk initialization is guarded only when a provider is loaded headlessly.
 The desktop still uses its existing workers, queries, graph and table callbacks.
 
@@ -212,7 +212,8 @@ Run each Tcl test with a suitable interpreter and the native SQLite/Thread
 packages. Request/JSON tests require Tcl 9; the capture tests also support
 Tcl 8.6. Each test file exits nonzero on failure. Existing Pipelines tests remain regression checks.
 
-Final verification on Linux with Tcl 9.0.1:
+Baseline verification on Linux with Tcl 9.0.1, before the subsequent AAS
+normalization commits (the figures below do not include the new replay cases):
 
 | Suite | Passed | Failed / skipped |
 | --- | ---: | ---: |
@@ -226,6 +227,9 @@ Final verification on Linux with Tcl 9.0.1:
 | Existing JavaScript wizard suites on the original combined branch | 71 | 0 / 0 |
 | Chromium Jobs/ASH integration checks | 6 | 0 / 0 |
 
+These are historical baseline results, not an execution of the new AAS
+normalization tests. Re-run the ASH replay, provider, capture and browser suites
+on a host with Tcl SQLite/Thread dependencies before merging the feature branch.
 The browser checks cover real mouse selection, SQL/event/session drill-downs,
 inert display of hostile SQL text, truthful empty states, live updates, stopped
 polling after completion, and reopening persisted history. The native-worker
