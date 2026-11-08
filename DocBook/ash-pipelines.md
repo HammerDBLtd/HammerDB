@@ -179,13 +179,12 @@ remaining within the selected Job's recording.
 
 Browser dragging sends pointer coordinates to Tcl; the shared desktop selection
 helper resolves native bucket/sample bounds and inclusive SQL predicates.
-The Web Service ASH timeline defaults to a continuous stacked step-area chart:
+The Web Service ASH timeline uses one continuous stacked step-area chart:
 each 15-second bucket shows the sum of its recorded wait classes as total AAS.
 Bands step at bucket boundaries without interpolating or smoothing missing
-samples, and gaps remain blank. An **Area / Bars** switch restores the
-Desktop-style overlapping bars for comparison, without changing source data.
-Both modes and the lower SQL, wait and session activity bars use the same
-Desktop wait-class colours, including classified MySQL-family waits. Selecting a row requests only matching SQL, event or
+samples, and gaps remain blank. The chart and the lower SQL, wait and session
+activity bars use the same Desktop wait-class colours, including classified
+MySQL-family waits. Selecting a row requests only matching SQL, event or
 session samples using compound (jobid,source,identifier,sample_time) SQLite
 indexes, retaining the existing overview in the browser. The selected SQL
 activity-over-time plot belongs to that SQL ID only. The browser uses the native
