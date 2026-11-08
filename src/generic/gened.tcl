@@ -138,6 +138,7 @@ proc ed_start_gui { dbdict icons iconalt } {
         {{command}  {Autopilot} {-command "autopilot_options" -underline 0}}
         {{command}  {Transaction Counter} {-command "countopts" -underline 0}}
         {{command}  {Metrics} {-command "metricsopts" -underline 0}}
+        {{cascade} {ASH Capture} {{{command} {Start} {-command "::ashcmd::gui_start"}} {{command} {Stop} {-command "::ashcmd::gui_stop"}} {{command} {Status} {-command "::ashcmd::gui_status"}}}}
         {{command}  {Mode} {-command "select_mode" -underline 0}}
         {{command}  {Datagen} {-command "dgopts" -underline 0}}
         {{command}  {Jobs} {-command "job_options" -underline 0}}
@@ -1647,11 +1648,20 @@ proc ed_stop_autopilot {} {
 
 proc vurun {} {
     global _ED opmode jobid
-
-    set jobid [guid]
-    if { [jobmain $jobid run] eq 1 } {
-        dict set jsondict error message "Jobid already exists or error in creating jobid in JOBMAIN table"
-        #return
+    if {[info exists ::ashcmd::starting] && $::ashcmd::starting} {
+        tk_messageBox -icon warning -message "ASH is still starting. Run the benchmark after ASH is ready."
+        return
+    }
+    if {[llength [info commands ::ashcmd::manual_active]] && [::ashcmd::manual_active]} {
+        # Use the ASH Job already registered by the GUI Start action. The
+        # selected benchmark and its archive must be the SAME Job in hammerdbws.
+        set jobid [::ashcmd::current_job]
+    } else {
+        set jobid [guid]
+        if { [jobmain $jobid run] eq 1 } {
+            dict set jsondict error message "Jobid already exists or error in creating jobid in JOBMAIN table"
+            #return
+        }
     }
 
     #In turn if script is not already loaded vucreate should call loadscript meaning following should not return no workload to run
