@@ -171,7 +171,7 @@ proc ::hdb_ai::json_quote {value} {
             9  {append out {\t}}
             default {
                 if {$n < 32} {
-                    append out [format {\\u%04X} $n]
+                    append out [format {\u%04X} $n]
                 } else {
                     append out $ch
                 }
