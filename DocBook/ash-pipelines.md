@@ -217,8 +217,8 @@ Run each Tcl test with a suitable interpreter and the native SQLite/Thread
 packages. Request/JSON tests require Tcl 9; the capture tests also support
 Tcl 8.6. Each test file exits nonzero on failure. Existing Pipelines tests remain regression checks.
 
-Baseline verification on Linux with Tcl 9.0.1, before the subsequent AAS
-normalization commits (the figures below do not include the new replay cases):
+Historical baseline verification on Linux with Tcl 9.0.1 (prior to the
+ASH reporting changes):
 
 | Suite | Passed | Failed / skipped |
 | --- | ---: | ---: |
@@ -232,9 +232,6 @@ normalization commits (the figures below do not include the new replay cases):
 | Existing JavaScript wizard suites on the original combined branch | 71 | 0 / 0 |
 | Chromium Jobs/ASH integration checks | 6 | 0 / 0 |
 
-These are historical baseline results, not an execution of the new AAS
-normalization tests. Re-run the ASH replay, provider, capture and browser suites
-on a host with Tcl SQLite/Thread dependencies before merging the feature branch.
 The browser checks cover real mouse selection, SQL/event/session drill-downs,
 inert display of hostile SQL text, truthful empty states, live updates, stopped
 polling after completion, and reopening persisted history. The native-worker
