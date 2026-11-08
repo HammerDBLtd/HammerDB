@@ -18,6 +18,8 @@
   let sequenceApproved=false;
   try{sequenceApproved=localStorage.getItem(APPROVAL_KEY)==='yes';}catch(_){}
   let steps=loadSteps();
+  const modelHistory=[];
+  let lastAnalysedIds='';
 
   function node(tag,text,cls) {
     const el=document.createElement(tag);
@@ -116,6 +118,85 @@
     }
     parent.append(wrap);
   }
+
+  // Secrets remain in the password field's memory and are never placed in localStorage.
+  // All model text goes through the server-side TLS proxy on this origin.
+  function transportAllowed() {
+    const host=window.location.hostname.toLowerCase();
+    return window.location.protocol==='https:' ||
+      ['localhost','127.0.0.1','::1','[::1]'].includes(host);
+  }
+  async function askAI(question) {
+    const key=$('hdb-ai-key').value.trim();
+    if(!key)return false;
+    if(!transportAllowed()){
+      talk('To use your API key from another machine, open this HammerDB Web Service over HTTPS.');return false;
+    }
+    if(/\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/.test(question)) {
+      talk('Do not put an API key into the chat message. Use the password box instead.');return false;
+    }
+    const recent=modelHistory.slice(-4).map(x=>x.slice(0,1100)).join('\n');
+    const text=recent+'\n'+question.slice(0,10500);
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),34000);
+    try{
+      const response=await fetch(sameOrigin('ai-chat'),{
+        method:'POST',credentials:'same-origin',cache:'no-store',redirect:'error',
+        referrerPolicy:'same-origin',signal:controller.signal,
+        headers:{'Content-Type':'application/json','Accept':'application/json'},
+        body:JSON.stringify({api_key:key,prompt:text})
+      });
+      const data=await response.json();
+      if(!response.ok || !data.reply)throw Error(data.error||('OpenAI request failed (HTTP '+response.status+')'));
+      const answer=String(data.reply).slice(0,5000);
+      talk(answer);
+      modelHistory.push('User: '+question.slice(0,1000),'Assistant: '+answer.slice(0,1400));
+      if(modelHistory.length>8)modelHistory.splice(0,modelHistory.length-8);
+      return true;
+    }catch(error){
+      talk('AI analysis unavailable: '+error.message+
+        '. The measured comparison above is still available without an AI connection.');
+      return false;
+    }finally{clearTimeout(timeout);}
+  }
+  async function ashEvidence(report) {
+    // The ASH feature is optional; the pre-merge branch may not expose it yet.
+    // Filter the existing ASH event aggregates; never send SQL text, session IDs,
+    // original SQL, query plans, hostnames or entire ASH responses to OpenAI.
+    try{
+      const data=await readJson(sameOrigin('jobs?jobid='+
+        encodeURIComponent(report.jobid)+'&ashdata'),2*1024*1024);
+      if(data.available!==true || !Array.isArray(data.events))return null;
+      const events=[];
+      for(const row of data.events.slice(0,40)){
+        const raw=String(row.wait_event||row.event_name||row.event||row.name||'').trim();
+        if(!/^[A-Za-z0-9 _./:+()-]{1,100}$/.test(raw))continue;
+        const count=Number(row.count??row.samples??row.sample_count);
+        events.push({name:raw,count:Number.isFinite(count)&&count>=0?count:null});
+        if(events.length===8)break;
+      }
+      if(!events.length)return null;
+      const samples=Number(data.selected_sample_count??data.sample_count);
+      return {database:report.database,jobid:report.jobid,
+        sample_count:Number.isFinite(samples)&&samples>=0?samples:null,events};
+    }catch(_){return null;}
+  }
+  async function analyzeMeasured(comparison,force=false) {
+    if(!$('hdb-ai-key').value.trim())return;
+    const ids=comparison.reports.map(s=>s.jobid).join(',');
+    if(ids===lastAnalysedIds&&!force)return;
+    lastAnalysedIds=ids;
+    const ash=(await Promise.all(comparison.reports.map(ashEvidence))).filter(Boolean);
+    if(ash.length)talk('Optional ASH wait-event samples are available for '+
+      ash.map(s=>core.DATABASES[s.database]).join(', ')+'. Their interpretation is diagnostic, not part of the standard benchmark report.');
+    const evidence=core.modelEvidence(comparison,ash);
+    const success=await askAI('Explain this HammerDB TPROC-C comparison in plain language. Use ONLY the supplied measured JSON. '+
+      'Discuss throughput and response times, flag configuration differences and uncertain conclusions, '+
+      'and if optional ASH exists identify significant recorded wait events without claiming root cause. '+
+      'Recommend reviewing and sharing the original results through TPC-OSS.\n'+JSON.stringify(evidence));
+    if(!success)lastAnalysedIds='';
+  }
+
   function shareComparison(compare){
     sharing.replaceChildren();
     sharing.append(node('p','Sharing your measured result helps everyone benchmark database performance. We recommend contributing. You decide what to publish; review every artifact for hostnames, internal identifiers and other sensitive information first.'));
@@ -346,7 +427,8 @@
         const reports=steps.map(s=>s.summary);
         if(!lastComparison||lastComparison.reports.length!==reports.length||lastComparison.reports.some((r,i)=>r.jobid!==reports[i].jobid)){
           const comp=core.compareMany(reports);
-          renderComparison(comp);talk('All four-engine sequence steps that were requested are complete. I compared the actual job artifacts and recommend reviewing them for TPC-OSS sharing.');
+          renderComparison(comp);talk('All requested profiles completed. I compared the actual artifacts and recommend reviewing and sharing them through TPC-OSS.');
+          await analyzeMeasured(comp);
         }
       }
     }catch(err){status.textContent='Status unavailable: '+err.message;}
@@ -380,6 +462,7 @@
     renderComparison(comp);
     talk('Compared '+comp.reports.map(s=>core.DATABASES[s.database]+' job '+s.jobid).join(', ')+
       '. See the measured results and comparability warnings. Sharing them would help the community; publication requires your GitHub PR.');
+    await analyzeMeasured(comp);
   }
   async function handle(message){
     const req=core.parseIntent(message);
@@ -389,6 +472,7 @@
         const comp=core.compareMany(steps.map(s=>s.summary));
         renderComparison(comp);
         talk('Compared the completed sequence. Please consider sharing each reviewed result with TPC-OSS.');
+        await analyzeMeasured(comp,true);
       }else{
         talk('Looking for completed TPROC-C profile artifacts in HammerDB Jobs…');
         await compareExisting(req);
@@ -400,7 +484,12 @@
       if(lastComparison)shareComparison(lastComparison);
       return;
     }
-    talk('Try “Run profiles on MariaDB, PostgreSQL, MySQL and VillageSQL, then compare” or “Now VillageSQL 0.0.7” or “Compare the four databases”. You can also paste a cipush command to prepare that exact run.');
+    if($('hdb-ai-key').value.trim()){
+      const prior=lastComparison?JSON.stringify(core.modelEvidence(lastComparison)):'No completed comparison attached.';
+      await askAI('User question: '+message.slice(0,2000)+'\nCurrent measured evidence: '+prior.slice(0,8500));
+    }else{
+      talk('Try “Run profiles on MariaDB, PostgreSQL, MySQL and VillageSQL, then compare” or “Now VillageSQL 0.0.7” or “Compare the four databases”. For conversational AI interpretation, enter your own OpenAI API key above.');
+    }
   }
   form.addEventListener('submit',async event=>{
     event.preventDefault();
@@ -412,6 +501,10 @@
     try{await handle(message);await updateSequence();}
     catch(err){talk('I could not complete that: '+err.message);}
     finally{busy=false;send.disabled=false;status.textContent='';prompt.focus();}
+  });
+  $('hdb-ai-key-clear').addEventListener('click',()=>{
+    $('hdb-ai-key').value='';modelHistory.length=0;lastAnalysedIds='';
+    talk('OpenAI API key cleared from this tab. Benchmark jobs and local comparisons are unchanged.');
   });
   $('hdb-ai-run-all').addEventListener('click',async()=>{
     if(!steps.length){talk('First ask for the databases you want to profile.');return;}
