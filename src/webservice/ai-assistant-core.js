@@ -243,7 +243,46 @@
     return {reports,rows,caveats,latency,order,comparable:caveats.length===0,
       note:'These are real, unaudited HammerDB measurements, not an audited TPC result. A higher NOPM in these runs does not establish that an engine is universally faster. Review test and system configuration.'};
   }
+
+  // Explicitly allowlisted material for a user's optional OpenAI analysis.
+  // Never send original job JSON, hostnames, SQL, environment or ASH SQL text.
+  function modelEvidence(comparison, ash = []) {
+    if(!comparison || !Array.isArray(comparison.reports))throw Error('No measured comparison.');
+    const summary=comparison.reports.slice(0,4).map(report=>{
+      const config={};
+      for(const key of CONFIG_KEYS){
+        if(report.config && report.config[key]!=null)config[key]=String(report.config[key]).slice(0,60);
+      }
+      const metrics={};
+      for(const metric of (report.metrics||[])){
+        if(['nopm','tpm'].includes(metric.field) && Number.isFinite(metric.value))
+          metrics[metric.field]=metric.value;
+      }
+      const latency={};
+      for(const [name,values] of Object.entries(report.latency||{}).slice(0,6)){
+        if(!/^[A-Z0-9_]{1,30}$/.test(name))continue;
+        latency[name]={
+          p95_ms:Number.isFinite(values.p95_ms)?values.p95_ms:null,
+          p99_ms:Number.isFinite(values.p99_ms)?values.p99_ms:null
+        };
+      }
+      return {database:report.database,jobid:report.jobid,benchmark:'TPROC-C',
+        release:String(report.release||'').slice(0,70),config,metrics,latency};
+    });
+    const waits=Array.isArray(ash)?ash.slice(0,4).map(item=>({
+      jobid:String(item.jobid||'').slice(0,64),
+      database:String(item.database||'').slice(0,10),
+      sample_count:Number.isFinite(item.sample_count)?item.sample_count:null,
+      events:Array.isArray(item.events)?item.events.slice(0,8).map(e=>({
+        name:String(e.name||'').slice(0,100),
+        count:Number.isFinite(e.count)?e.count:null
+      })):[]
+    })):[];
+    return {measurements:summary,comparability_warnings:comparison.caveats.slice(0,25),
+      ash_optional:waits,interpretation_note:comparison.note};
+  }
+
   return Object.freeze({DATABASES,SUBMIT_URL,database,validJobId,validRef,refName,inferRef,parseIntent,
     planProfile,pipelineUrl,artifactUrl,normalizeJobList,normalizePipelines,matchingPipeline,
-    summarizeJob,chooseProfileResult,compareMany});
+    summarizeJob,chooseProfileResult,compareMany,modelEvidence});
 });
