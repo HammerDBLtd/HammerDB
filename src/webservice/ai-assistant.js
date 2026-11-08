@@ -13,8 +13,10 @@
   const log=$('hdb-ai-conversation'), form=$('hdb-ai-form'), prompt=$('hdb-ai-prompt');
   const send=$('hdb-ai-send'), status=$('hdb-ai-status');
   const queueBox=$('hdb-ai-queue'), reportBox=$('hdb-ai-report'), sharing=$('hdb-ai-sharing');
-  const KEY='hammerdb-ai-profiles-v1', MAX_STEPS=4;
-  let busy=false,lastComparison=null,polling=false,lastPipelines=[],pipelineIndexReady=false;
+  const KEY='hammerdb-ai-profiles-v1', APPROVAL_KEY='hammerdb-ai-profiles-approved-v1', MAX_STEPS=4;
+  let busy=false,lastComparison=null,polling=false,lastPipelines=[],pipelineIndexReady=false,dispatching=false;
+  let sequenceApproved=false;
+  try{sequenceApproved=localStorage.getItem(APPROVAL_KEY)==='yes';}catch(_){}
   let steps=loadSteps();
 
   function node(tag,text,cls) {
@@ -38,7 +40,7 @@
   }
   function fmt(n){return Number(n).toLocaleString(undefined,{maximumFractionDigits:2});}
   function saveSteps() {
-    try{localStorage.setItem(KEY,JSON.stringify(steps));}catch(_){}
+    try{localStorage.setItem(KEY,JSON.stringify(steps));localStorage.setItem(APPROVAL_KEY,sequenceApproved?'yes':'no');}catch(_){}
   }
   function loadSteps() {
     try{
@@ -56,7 +58,8 @@
           return {database:s.database,ref,state:state==='complete'&&!summary?'running':state,
             io_intensive:s.io_intensive===1?1:0,after_ci_id:after,ci_id:ci,
             profile_id:Number(s.profile_id)||0,summary,
-            run_count:Number.isInteger(s.run_count)?s.run_count:0};
+            run_count:Number.isInteger(s.run_count)?s.run_count:0,
+            submitted_at:Number.isFinite(s.submitted_at)?s.submitted_at:0};
         });
     }catch(_){return [];}
   }
@@ -178,17 +181,18 @@
       if(!s){
         if(steps.length>=MAX_STEPS)throw Error('The sequence already has four databases. Clear it to start a new one.');
         s={database:db,ref,io_intensive:request.io_intensive,state:'planned',
-          after_ci_id:0,ci_id:0,profile_id:0,summary:null,run_count:0};
+          after_ci_id:0,ci_id:0,profile_id:0,summary:null,run_count:0,submitted_at:0};
         steps.push(s);added++;
       }else if(s.state==='planned'&&ref){
         s.ref=ref;s.io_intensive=request.io_intensive;
       }
     }
+    if(added)sequenceApproved=false;
     saveSteps();renderQueue();
-    talk((added?'Prepared ':'Updated ')+steps.length+' EC2 TPROC-C profile step(s) in order: '+
+    talk((added?'Prepared ':'Updated ')+steps.length+' TPROC-C profile step(s) in order: '+
       steps.map(s=>core.DATABASES[s.database]).join(' → ')+
-      '. Enter a Git ref for each database, then open the first planned step in Pipelines to confirm its start.');
-    talk('Existing EC2 settings control socket/core count; it is not part of this webhook request. I/O intensive is '+(request.io_intensive?'ON':'OFF')+'.');
+      '. Enter a Git ref for each database, then select “Approve and run sequence” once. I will use the existing HammerDB Pipelines interface for every job and compare the completed artifacts.');
+    talk('The existing host determines socket/core count (local machine or EC2). I/O-intensive is '+(request.io_intensive?'ON':'OFF')+'.');
   }
   function renderQueue(){
     queueBox.replaceChildren();
@@ -211,7 +215,7 @@
         input.addEventListener('input',()=>{s.ref=input.value.trim();saveSteps();});
         label.append(input);card.append(label);
         card.append(node('p','TPROC-C PROFILE · I/O-intensive '+(s.io_intensive?'ON':'OFF'),'hdb-ai-muted'));
-        if(index===0||steps[index-1].state==='complete'){
+        if(!sequenceApproved && (index===0||steps[index-1].state==='complete')){
           const link=anchor('Open reviewed profile in Pipelines',core.validRef(s.ref)?sameOrigin(core.pipelineUrl(s.database,s.ref,s.io_intensive)):'#',true);
           link.addEventListener('click',event=>{
             if(!pipelineIndexReady){
@@ -229,7 +233,7 @@
             talk('Review '+core.DATABASES[s.database]+' '+s.ref+' in Pipelines and confirm Run Benchmark there. I will check the existing pipeline status.');
           });
           card.append(link);
-        }else card.append(node('p','Ready after the preceding profile completes.','hdb-ai-muted'));
+        }else card.append(node('p',sequenceApproved?'Approved; the assistant will submit it when prior work completes.':'Ready after the preceding profile completes.','hdb-ai-muted'));
       }else if(s.state==='failed'){
         const button=node('button','Retry step');
         button.type='button';
@@ -258,6 +262,40 @@
     }
     return core.chooseProfileResult(ci,jobIndex,summaries);
   }
+
+  // Uses the existing Pipelines form's action=run route. No new executor.
+  // A confirmation approves the full ordered sequence, not hidden future jobs.
+  async function submitNext(pipelines) {
+    if(!sequenceApproved || dispatching ||
+      steps.some(s=>s.state==='running'||s.state==='awaiting-submit'||s.state==='failed'))return;
+    const s=steps.find(step=>step.state==='planned');
+    if(!s)return;
+    if(!core.validRef(s.ref)) {
+      sequenceApproved=false;saveSteps();
+      talk('Automatic submission paused: '+core.DATABASES[s.database]+' has no valid Git ref.');
+      return;
+    }
+    dispatching=true;
+    // Record intent BEFORE network I/O so a lost connection cannot replay.
+    s.after_ci_id=pipelines.reduce((n,p)=>Math.max(n,p.ci_id),0);
+    s.submitted_at=Date.now();s.state='awaiting-submit';s.ci_id=0;
+    saveSteps();renderQueue();
+    talk('Submitting '+core.DATABASES[s.database]+' '+s.ref+' via the existing Pipelines route.');
+    const url=sameOrigin(core.pipelineUrl(s.database,s.ref,s.io_intensive)+'&action=run');
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),30000);
+    try {
+      const response=await fetch(url,{method:'GET',credentials:'same-origin',
+        cache:'no-store',redirect:'follow',signal:controller.signal});
+      if(!response.ok)talk('Pipelines reported HTTP '+response.status+
+        '. Checking whether a job was created before deciding what to do.');
+    }catch(err){
+      talk('Pipeline request interrupted ('+err.message+'). Checking CI records; I will NOT retry automatically.');
+    }finally{
+      clearTimeout(timeout);dispatching=false;
+    }
+  }
+
   async function updateSequence() {
     if(polling)return;
     polling=true;
@@ -270,7 +308,16 @@
         if(s.state!=='awaiting-submit' && s.state!=='running')continue;
         let ci=s.ci_id?pipelines.find(p=>p.ci_id===s.ci_id):null;
         if(!ci)ci=core.matchingPipeline(pipelines,s);
-        if(!ci)continue;
+        if(!ci){
+          // No new CI record: do not invent success or replay the request.
+          if(s.state==='awaiting-submit' && s.submitted_at &&
+            Date.now()-s.submitted_at>60000){
+            s.state='planned';s.submitted_at=0;sequenceApproved=false;changed=true;
+            talk('HammerDB has not recorded a new '+core.DATABASES[s.database]+
+              ' pipeline. Automatic sequence paused. Check Pipelines and approve again if needed.');
+          }
+          break;
+        }
         if(!s.ci_id){s.ci_id=ci.ci_id;s.state='running';changed=true;talk(core.DATABASES[s.database]+' pipeline '+ci.ci_id+' was submitted. Checking for completion.');}
         if(ci.status.endsWith('FAILED')||['ERROR','CANCELLED','CANCELED','ABORTED'].includes(ci.status)){
           s.state='failed';changed=true;
@@ -294,6 +341,7 @@
         break; // Only the first unfinished step advances.
       }
       if(changed){saveSteps();renderQueue();}
+      if(sequenceApproved)await submitNext(pipelines);
       if(steps.length>=2&&steps.every(s=>s.state==='complete')){
         const reports=steps.map(s=>s.summary);
         if(!lastComparison||lastComparison.reports.length!==reports.length||lastComparison.reports.some((r,i)=>r.jobid!==reports[i].jobid)){
@@ -365,13 +413,33 @@
     catch(err){talk('I could not complete that: '+err.message);}
     finally{busy=false;send.disabled=false;status.textContent='';prompt.focus();}
   });
-  $('hdb-ai-refresh').addEventListener('click',async()=>{await updateSequence();if(!polling)talk('Checked existing pipeline statuses.');});
+  $('hdb-ai-run-all').addEventListener('click',async()=>{
+    if(!steps.length){talk('First ask for the databases you want to profile.');return;}
+    if(steps.some(s=>s.state==='running'||s.state==='awaiting-submit')){
+      talk('A pipeline is already being checked. Wait for it to finish.');return;
+    }
+    const pending=steps.filter(s=>s.state==='planned');
+    if(!pending.length){talk('There are no pending profiles.');return;}
+    const invalid=pending.filter(s=>!core.validRef(s.ref));
+    if(invalid.length){
+      talk('Enter valid Git refs first: '+invalid.map(s=>core.DATABASES[s.database]).join(', ')+'.');return;
+    }
+    if(!pipelineIndexReady){talk('Reading existing pipeline status before scheduling…');await updateSequence();}
+    if(!pipelineIndexReady)return;
+    const detail=pending.map(s=>core.DATABASES[s.database]+': '+s.ref+
+      ', TPROC-C profile, I/O-intensive '+(s.io_intensive?'ON':'OFF')).join('\n');
+    if(!window.confirm('Approve running these profiles in order through HammerDB Pipelines?\n\n'+
+      detail+'\n\nThe remaining profiles will start automatically after each completes.'))return;
+    sequenceApproved=true;saveSteps();renderQueue();
+    await updateSequence();
+  });
+  $('hdb-ai-refresh').addEventListener('click',async()=>{await updateSequence();talk('Checked existing pipeline statuses.');});
   $('hdb-ai-clear').addEventListener('click',()=>{
     if(!window.confirm('Clear the locally planned sequence? This does not cancel existing benchmark jobs.'))return;
-    steps=[];lastComparison=null;saveSteps();renderQueue();talk('Sequence cleared. Existing HammerDB pipelines and jobs were not changed.');
+    steps=[];sequenceApproved=false;lastComparison=null;saveSteps();renderQueue();talk('Sequence cleared. Existing HammerDB pipelines and jobs were not changed.');
   });
   renderQueue();
   updateSequence();
-  setInterval(()=>{if(steps.some(s=>s.state==='awaiting-submit'||s.state==='running'))updateSequence();},15000);
+  setInterval(()=>{if(sequenceApproved||steps.some(s=>s.state==='awaiting-submit'||s.state==='running'))updateSequence();},15000);
   talk('Ask me to run and compare MariaDB, PostgreSQL, MySQL and VillageSQL profiles. I will check the existing jobs and help you submit reviewed results to TPC-OSS.');
 })();
