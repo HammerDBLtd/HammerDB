@@ -120,7 +120,7 @@ proc fixture_stats {} {
 }
 proc fixture_chart {samples {last 30} {database pg}} {
     set points {}
-    foreach refresh {15 30 45} {
+    foreach refresh {15 30 45 60} {
         if {$refresh > $last} break
         set metadata [fixture_metadata $refresh]
         set options [dict create begin $::fixture_base end [expr {$::fixture_base+$refresh}]]
@@ -134,7 +134,7 @@ proc fixture_chart {samples {last 30} {database pg}} {
 proc fixture_initialize {} {
     set db $::fixture_db
     $db eval {DELETE FROM JOBASH;DELETE FROM JOBASHINFO;DELETE FROM JOBMAIN}
-    foreach id {ASH-HISTORY ASH-LIVE ASH-EMPTY ASH-NONE} {
+    foreach id {ASH-HISTORY ASH-LIVE ASH-EMPTY ASH-NONE ASH-GAP} {
         $db eval {INSERT INTO JOBMAIN(jobid,db,bm,jobdict) VALUES($id,'PostgreSQL','TPC-C','fixture synthetic')}
     }
     set samples [fixture_samples]
@@ -153,6 +153,13 @@ proc fixture_initialize {} {
     ::ashstore::append $db ASH-MYSQL samples $mysql_samples
     ::ashstore::append $db ASH-MYSQL chart [fixture_chart $mysql_samples 30 mysql]
     ::ashstore::finish $db ASH-MYSQL complete
+    # Only two nonadjacent captured buckets: the timeline must show a real gap.
+    set gap_samples [list [fixture_sample 1 11 q1 CPU CPU {SELECT 1}] \
+        [fixture_sample 46 11 q1 CPU CPU {SELECT 1}]]
+    ::ashstore::begin $db ASH-GAP pg [fixture_metadata 60]
+    ::ashstore::append $db ASH-GAP samples $gap_samples
+    ::ashstore::append $db ASH-GAP chart [fixture_chart $gap_samples 60]
+    ::ashstore::finish $db ASH-GAP complete
 }
 fixture_initialize
 
