@@ -1,228 +1,368 @@
 /*
- * HammerDB AI Assistant: on-page chat over existing, measured job artifacts.
- * Uses same-origin read-only endpoints. No external AI provider or credential.
+ * HammerDB AI Assistant: existing EC2 profile planning, status polling,
+ * multi-engine results comparison, and reviewed TPC-OSS sharing.
+ * No new pipeline execution endpoint or browser-stored API credentials.
  */
 (() => {
   'use strict';
-  const core = window.HDBAssistantCore;
-  const app = document.getElementById('hdb-ai-app');
+  const core=window.HDBAssistantCore;
+  const app=document.getElementById('hdb-ai-app');
   if (!app || !core) return;
-  const base = String(app.getAttribute('data-base') || '').replace(/\/$/, '');
-  const $ = id => document.getElementById(id);
-  const log = $('hdb-ai-conversation');
-  const form = $('hdb-ai-form');
-  const prompt = $('hdb-ai-prompt');
-  const send = $('hdb-ai-send');
-  const status = $('hdb-ai-status');
-  const report = $('hdb-ai-report');
-  const sharing = $('hdb-ai-sharing');
-  let lastComparison = null;
-  let busy = false;
+  const base=String(app.getAttribute('data-base')||'').replace(/\/$/,'');
+  const $=id=>document.getElementById(id);
+  const log=$('hdb-ai-conversation'), form=$('hdb-ai-form'), prompt=$('hdb-ai-prompt');
+  const send=$('hdb-ai-send'), status=$('hdb-ai-status');
+  const queueBox=$('hdb-ai-queue'), reportBox=$('hdb-ai-report'), sharing=$('hdb-ai-sharing');
+  const KEY='hammerdb-ai-profiles-v1', MAX_STEPS=4;
+  let busy=false,lastComparison=null,polling=false,lastPipelines=[];
+  let steps=loadSteps();
 
-  function element(tag, text, cls) {
-    const node = document.createElement(tag);
-    if (text !== undefined) node.textContent = String(text);
-    if (cls) node.className = cls;
-    return node;
+  function node(tag,text,cls) {
+    const el=document.createElement(tag);
+    if (text!==undefined) el.textContent=String(text);
+    if (cls) el.className=cls;
+    return el;
   }
-  function anchor(text, href, external = false) {
-    const node = element('a',text);
-    node.href = href;
-    if (external) { node.target='_blank'; node.rel='noopener noreferrer'; }
-    return node;
+  function anchor(text,href,external=false) {
+    const el=node('a',text);
+    el.href=href;
+    if(external){el.target='_blank';el.rel='noopener noreferrer';}
+    return el;
   }
-  function sameOrigin(path) { return base + '/' + path; }
-  function talk(text, speaker = 'assistant') {
-    const node = element('p',text,'hdb-ai-message');
-    node.dataset.speaker=speaker;
-    log.append(node);
-    log.scrollTop = log.scrollHeight;
-    return node;
+  const sameOrigin=path=>base+'/'+path;
+  function talk(text,speaker='assistant') {
+    const el=node('p',text,'hdb-ai-message');
+    el.dataset.speaker=speaker;
+    log.append(el);log.scrollTop=log.scrollHeight;
+    return el;
   }
-  function setBusy(value, description) {
-    busy=value;
-    send.disabled=value;
-    status.textContent=description||'';
+  function fmt(n){return Number(n).toLocaleString(undefined,{maximumFractionDigits:2});}
+  function saveSteps() {
+    try{localStorage.setItem(KEY,JSON.stringify(steps));}catch(_){}
   }
-  function number(value) {
-    return Number(value).toLocaleString(undefined,{maximumFractionDigits:2});
+  function loadSteps() {
+    try{
+      const saved=JSON.parse(localStorage.getItem(KEY)||'[]');
+      if(!Array.isArray(saved))return [];
+      return saved.slice(0,MAX_STEPS).filter(s=>s&&Object.prototype.hasOwnProperty.call(core.DATABASES,s.database))
+        .map(s=>{
+          const state=['planned','awaiting-submit','running','complete','failed'].includes(s.state)?s.state:'planned';
+          const ref=core.validRef(s.ref)?s.ref:'';
+          const after=Number.isSafeInteger(s.after_ci_id)&&s.after_ci_id>=0?s.after_ci_id:0;
+          const ci=Number.isSafeInteger(s.ci_id)&&s.ci_id>0?s.ci_id:0;
+          let summary=null;
+          if(state==='complete' && s.summary && s.summary.database===s.database &&
+            core.validJobId(s.summary.jobid) && s.summary.benchmark==='TPROC-C') summary=s.summary;
+          return {database:s.database,ref,state:state==='complete'&&!summary?'running':state,
+            io_intensive:s.io_intensive===1?1:0,after_ci_id:after,ci_id:ci,
+            profile_id:Number(s.profile_id)||0,summary,
+            run_count:Number.isInteger(s.run_count)?s.run_count:0};
+        });
+    }catch(_){return [];}
   }
-  function formatPct(value) {
-    return value == null ? 'n/a' : (value >= 0 ? '+' : '') + number(value) + '%';
-  }
-  function row(cells, heading = false) {
-    const tr = document.createElement('tr');
-    for (const cell of cells) tr.append(element(heading?'th':'td',cell));
-    return tr;
-  }
-  function links(container, items) {
-    const wrap = element('div',undefined,'hdb-ai-links');
-    for (const item of items) wrap.append(anchor(item.label,item.url,!!item.external));
-    container.append(wrap);
-  }
-
-  async function readJson(url, limit = 12 * 1024 * 1024) {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(()=>controller.abort(),20000);
-    try {
-      const response = await fetch(url,{
-        method:'GET',credentials:'same-origin',cache:'no-store',redirect:'error',
-        signal:controller.signal,headers:{Accept:'application/json'}
-      });
-      if (!response.ok) throw Error('HammerDB returned HTTP '+response.status);
-      if (!(response.headers.get('content-type')||'').toLowerCase().includes('json'))
-        throw Error('HammerDB did not return JSON.');
-      const length=Number(response.headers.get('content-length')||0);
-      if (length>limit) throw Error('Result is too large for the assistant.');
+  async function readJson(url,limit=12*1024*1024){
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),20000);
+    try{
+      const res=await fetch(url,{method:'GET',credentials:'same-origin',
+        cache:'no-store',redirect:'error',signal:controller.signal,
+        headers:{Accept:'application/json'}});
+      if(!res.ok)throw Error('HammerDB returned HTTP '+res.status);
+      if(!(res.headers.get('content-type')||'').toLowerCase().includes('json'))
+        throw Error('Expected a JSON response from HammerDB.');
+      const size=Number(res.headers.get('content-length')||0);
+      if(size>limit)throw Error('Artifact is too large for preview.');
       let text='';
-      if (response.body && typeof response.body.getReader === 'function') {
-        const reader=response.body.getReader(),decoder=new TextDecoder();
-        let size=0;
-        for (;;) {
+      if(res.body&&res.body.getReader){
+        const reader=res.body.getReader(),decoder=new TextDecoder();
+        let bytes=0;
+        for(;;){
           const {done,value}=await reader.read();
-          if (done) break;
-          size+=value.byteLength;
-          if (size>limit) { await reader.cancel(); throw Error('Result exceeds assistant size limit.'); }
+          if(done)break;
+          bytes+=value.byteLength;
+          if(bytes>limit){await reader.cancel();throw Error('Artifact size limit exceeded.');}
           text+=decoder.decode(value,{stream:true});
         }
         text+=decoder.decode();
-      } else {
-        text=await response.text();
-        if (text.length>limit) throw Error('Result exceeds assistant size limit.');
+      }else{
+        text=await res.text();
+        if(text.length>limit)throw Error('Artifact size limit exceeded.');
       }
-      try { return JSON.parse(text); }
-      catch (_) { throw Error('Invalid JSON returned by HammerDB.'); }
-    } finally { window.clearTimeout(timeout); }
+      try{return JSON.parse(text);}catch(_){throw Error('Invalid JSON from HammerDB.');}
+    }finally{clearTimeout(timeout);}
   }
-
-  async function loadJob(id) {
-    if (!core.validJobId(id)) throw Error('Invalid job ID.');
-    const data=await readJson(sameOrigin(core.artifactUrl(id)));
-    if (data && data.error) throw Error('Job is not complete or has no result.');
-    return core.summarizeJob(id,data);
+  async function loadJob(id){
+    if(!core.validJobId(id))throw Error('Invalid job ID.');
+    const artifact=await readJson(sameOrigin(core.artifactUrl(id)));
+    if(artifact.error)throw Error('The job has no completed benchmark result.');
+    return core.summarizeJob(id,artifact);
   }
-  async function findLatest(db, benchmark, index) {
-    const candidates=index.filter(j=>j.database===db && j.benchmark===benchmark).slice(0,12);
-    for (const candidate of candidates) {
-      try { return await loadJob(candidate.jobid); }
-      catch (_) { /* An incomplete job is not a benchmark result. */ }
+  function makeCell(text,heading=false){
+    return node(heading?'th':'td',text);
+  }
+  function tableRow(values,heading=false){
+    const row=node('tr');
+    for(const val of values)row.append(makeCell(val,heading));
+    return row;
+  }
+  function makeLinks(parent,links){
+    const wrap=node('p',undefined,'hdb-ai-links');
+    for(const item of links){
+      if(wrap.childNodes.length)wrap.append(document.createTextNode(' · '));
+      wrap.append(anchor(item.label,item.url,item.external||false));
     }
-    throw Error('No completed '+core.DATABASES[db]+' '+benchmark+' result found. Run a profile using Pipelines and try again.');
+    parent.append(wrap);
   }
-  async function resolvePair(request) {
-    if (request.ids && request.ids.length===2) {
-      const a=await loadJob(request.ids[0]);
-      const b=await loadJob(request.ids[1]);
-      return a.database==='pg' ? [a,b] : [b,a];
-    }
-    const index=core.normalizeJobList(await readJson(sameOrigin('ai-jobs'),128*1024));
-    if (!index.length) throw Error('No PostgreSQL or MariaDB jobs found. Start profiles from Pipelines first.');
-    const pg=await findLatest('pg',request.benchmark,index);
-    const maria=await findLatest('maria',request.benchmark,index);
-    return [pg,maria];
-  }
-  function sharePanel(comparison) {
+  function shareComparison(compare){
     sharing.replaceChildren();
-    sharing.append(element('p','Consider contributing either measured result to TPC-OSS. Publication is not automatic. Review the original JSON for host and environment details first.'));
-    const items=[
-      {label:'PostgreSQL original JSON',url:sameOrigin(core.artifactUrl(comparison.pg.jobid))},
-      {label:'MariaDB original JSON',url:sameOrigin(core.artifactUrl(comparison.maria.jobid))},
-      {label:'Continue to TPC-OSS (GitHub PR)',url:core.SUBMIT_URL,external:true}
-    ];
-    links(sharing,items);
-    sharing.append(element('p','The submission site supports artifact upload and GitHub sign-in. A GitHub account is required to propose a PR; maintainers review it before publication.','hdb-ai-muted'));
+    sharing.append(node('p','Sharing your measured result helps everyone benchmark database performance. We recommend contributing. You decide what to publish; review every artifact for hostnames, internal identifiers and other sensitive information first.'));
+    for(const s of compare.reports){
+      const line=node('p');
+      line.append(node('span',core.DATABASES[s.database]+' ('+s.jobid+'): '));
+      line.append(anchor('Review original JSON',sameOrigin(core.artifactUrl(s.jobid))));
+      sharing.append(line);
+    }
+    makeLinks(sharing,[{label:'Continue to TPC-OSS — propose GitHub PR',url:core.SUBMIT_URL,external:true}]);
+    sharing.append(node('p','GitHub sign-in is required for the existing PR submission process. Maintainers review submissions before publication. No automatic upload.','hdb-ai-muted'));
   }
-  function renderComparison(comparison) {
-    report.replaceChildren();
-    const title=element('p','PostgreSQL job '+comparison.pg.jobid+' vs MariaDB job '+comparison.maria.jobid);
-    report.append(title);
-    const box=element('div',undefined,'hdb-ai-table-wrap');
-    const table=element('table',undefined,'hdb-ai-comparison');
-    table.append(row(['Metric','PostgreSQL','MariaDB','MariaDB vs PostgreSQL'],true));
-    for (const result of comparison.rows) {
-      table.append(row([result.label,number(result.pg)+' '+result.unit,
-        number(result.maria)+' '+result.unit,formatPct(result.percentage)]));
+  function renderComparison(compare){
+    reportBox.replaceChildren();
+    reportBox.append(node('p','Measured TPROC-C profile results: maximum observed NOPM from each selected profile job, or the selected completed artifact.'));
+    const wrap=node('div',undefined,'hdb-ai-table-wrap');
+    const table=node('table',undefined,'hdb-ai-comparison');
+    table.append(tableRow(['Measurement',...compare.reports.map(r=>core.DATABASES[r.database])],true));
+    for(const m of compare.rows){
+      table.append(tableRow([m.label,...compare.reports.map(r=>m.values[r.database]==null?'—':fmt(m.values[r.database]))]));
     }
-    box.append(table);report.append(box);
-    const nopm=comparison.rows.find(item=>item.field==='nopm');
-    if (nopm && nopm.percentage!==null) {
-      const direction=nopm.percentage>0?'higher':nopm.percentage<0?'lower':'the same';
-      const detail=nopm.percentage===0?'the same NOPM':Math.abs(nopm.percentage).toFixed(1)+'% '+direction+' NOPM';
-      report.append(element('p','MariaDB recorded '+detail+
-        ' than PostgreSQL in these particular runs (relative to PostgreSQL NOPM).'+
-        ' NOPM is the primary TPROC-C comparison metric.'));
-    } else if (comparison.rows.length) {
-      report.append(element('p','The table shows measured values. For TPROC-H duration metrics, lower is generally better.'));
+    table.append(tableRow(['Source job',...compare.reports.map(s=>s.jobid)]));
+    table.append(tableRow(['Database version',...compare.reports.map(s=>s.release||'—')]));
+    table.append(tableRow(['Virtual users',...compare.reports.map(s=>s.config.virtual_users||'—')]));
+    wrap.append(table);reportBox.append(wrap);
+    if(compare.order.length&&compare.comparable){
+      reportBox.append(node('p','For these specific jobs, NOPM order (highest first): '+
+        compare.order.map(db=>core.DATABASES[db]).join(', ')+'. This does not establish general database superiority.'));
+    }else{
+      reportBox.append(node('p','These measurements can be compared, but the test environments/configurations may differ. Do not interpret the figures as a fair engine ranking.'));
     }
-    if (comparison.latency.length) {
-      const latencyTable=element('table',undefined,'hdb-ai-comparison');
-      latencyTable.append(row(['Transaction','PostgreSQL p95 (ms)','MariaDB p95 (ms)','PostgreSQL p99 (ms)','MariaDB p99 (ms)'],true));
-      for (const r of comparison.latency) {
-        const value=x=>x===null?'n/a':number(x);
-        latencyTable.append(row([r.name,value(r.pgP95),value(r.mariaP95),value(r.pgP99),value(r.mariaP99)]));
+    if(compare.caveats.length){
+      const box=node('div',undefined,'hdb-ai-warning');
+      box.append(node('strong','Comparison cautions'));
+      const list=node('ul');
+      for(const warning of compare.caveats)list.append(node('li',warning));
+      box.append(list);reportBox.append(box);
+    }
+    if(compare.latency.length){
+      reportBox.append(node('h3','Response-time percentiles (milliseconds)'));
+      const outer=node('div',undefined,'hdb-ai-table-wrap'),t=node('table',undefined,'hdb-ai-comparison');
+      t.append(tableRow(['Transaction',...compare.reports.map(s=>core.DATABASES[s.database]+' p95 / p99')],true));
+      for(const metric of compare.latency){
+        t.append(tableRow([metric.name,...compare.reports.map(s=>{
+          const times=metric.values[s.database];
+          return times?(times.p95_ms==null?'—':fmt(times.p95_ms))+' / '+(times.p99_ms==null?'—':fmt(times.p99_ms)):'—';
+        })]));
       }
-      const wrapper=element('div',undefined,'hdb-ai-table-wrap');
-      wrapper.append(latencyTable);report.append(element('h3','Response-time percentiles'));report.append(wrapper);
+      outer.append(t);reportBox.append(outer);
     }
-    if (comparison.caveats.length) {
-      const warning=element('section',undefined,'hdb-ai-warning');
-      warning.append(element('strong','Comparability caveats'));
-      const list=element('ul');
-      for (const text of comparison.caveats) list.append(element('li',text));
-      warning.append(list);report.append(warning);
+    reportBox.append(node('p',compare.note,'hdb-ai-muted'));
+    shareComparison(compare);
+    lastComparison=compare;
+  }
+  function prepareQueue(request){
+    if(request.workload!=='TPROC-C')throw Error('Phase 1 profiles use TPROC-C; select a TPROC-C workload.');
+    const dbs=request.databases;
+    if(!dbs.length)throw Error('Name a database to profile.');
+    let added=0;
+    for(const db of dbs){
+      const ref=request.refs[db]||'';
+      let s=steps.find(item=>item.database===db);
+      if(!s){
+        if(steps.length>=MAX_STEPS)throw Error('The sequence already has four databases. Clear it to start a new one.');
+        s={database:db,ref,io_intensive:request.io_intensive,state:'planned',
+          after_ci_id:0,ci_id:0,profile_id:0,summary:null,run_count:0};
+        steps.push(s);added++;
+      }else if(s.state==='planned'&&ref){
+        s.ref=ref;s.io_intensive=request.io_intensive;
+      }
     }
-    report.append(element('p',comparison.note,'hdb-ai-muted'));
-    sharePanel(comparison);
+    saveSteps();renderQueue();
+    talk((added?'Prepared ':'Updated ')+steps.length+' EC2 TPROC-C profile step(s) in order: '+
+      steps.map(s=>core.DATABASES[s.database]).join(' → ')+
+      '. Enter a Git ref for each database, then open the first planned step in Pipelines to confirm its start.');
+    if(/\b(?:core|socket|96)\b/i.test(prompt.value)){
+      talk('Socket/core count is determined by the existing EC2 benchmark configuration, not by the webhook JSON.');
+    }
   }
-  function profileHelp(request) {
-    const databases=request.databases;
-    const message=talk('Use the existing HammerDB Pipelines page to prepare a '+request.benchmark+
-      ' profile. Choose the Git ref and review the parameters there; the assistant will not start the run for you.');
-    const items=databases.map(db=>({
-      label:core.DATABASES[db]+' profile in Pipelines',
-      url:sameOrigin(core.pipelineUrl(db,request.benchmark)),external:false
-    }));
-    links(message,items);
-    talk('After the profiles complete, ask: “Compare PostgreSQL and MariaDB”. I will read the latest completed local result artifacts.');
+  function renderQueue(){
+    queueBox.replaceChildren();
+    if(!steps.length){queueBox.append(node('p','Ask to profile MariaDB, PostgreSQL, MySQL and VillageSQL, or add databases in separate messages.','hdb-ai-muted'));return;}
+    steps.forEach((s,index)=>{
+      const card=node('article',undefined,'hdb-ai-run');
+      card.append(node('h3',(index+1)+'. '+core.DATABASES[s.database]));
+      const stageLabel=s.state==='planned'?'Waiting for confirmation':
+        s.state==='awaiting-submit'?'Waiting for pipeline submission':
+        s.state==='running'?'Pipeline running / checking results':
+        s.state==='complete'?'Completed':'Pipeline failed';
+      card.append(node('p',stageLabel+(s.ci_id?' · Pipeline '+s.ci_id:'')+
+        (s.profile_id?' · Profile '+s.profile_id:''),'hdb-ai-muted'));
+      if(s.state==='planned'){
+        const label=node('label','Git ref for '+core.DATABASES[s.database]);
+        const input=node('input');
+        input.type='text';input.maxLength=190;input.value=s.ref;
+        input.placeholder='refs/tags/... or refs/heads/...';
+        input.autocomplete='off';
+        input.addEventListener('input',()=>{s.ref=input.value.trim();saveSteps();});
+        label.append(input);card.append(label);
+        card.append(node('p','TPROC-C PROFILE · I/O-intensive '+(s.io_intensive?'ON':'OFF'),'hdb-ai-muted'));
+        if(index===0||steps[index-1].state==='complete'){
+          const link=anchor('Open reviewed profile in Pipelines','#',true);
+          link.addEventListener('click',event=>{
+            if(!core.validRef(s.ref)){
+              event.preventDefault();talk('Please enter a valid Git ref for '+core.DATABASES[s.database]+'.');input.focus();return;
+            }
+            // Existing Pipelines page requires a separate explicit Run Benchmark click.
+            link.href=sameOrigin(core.pipelineUrl(s.database,s.ref,s.io_intensive));
+            const highest=lastPipelines.reduce((max,p)=>Math.max(max,p.ci_id),0);
+            s.after_ci_id=highest;s.state='awaiting-submit';
+            saveSteps();renderQueue();
+            talk('Review '+core.DATABASES[s.database]+' '+s.ref+' in Pipelines and confirm Run Benchmark there. I will check the existing pipeline status.');
+          });
+          card.append(link);
+        }else card.append(node('p','Ready after the preceding profile completes.','hdb-ai-muted'));
+      }else if(s.state==='failed'){
+        const button=node('button','Retry step');
+        button.type='button';
+        button.addEventListener('click',()=>{s.state='planned';s.ci_id=0;s.profile_id=0;s.summary=null;saveSteps();renderQueue();});
+        card.append(button);
+      }else if(s.state==='complete'&&s.summary){
+        const nopm=s.summary.metrics.find(m=>m.field==='nopm');
+        card.append(node('p','Peak measured NOPM: '+(nopm?fmt(nopm.value):'not recorded')+
+          ' · job '+s.summary.jobid,'hdb-ai-muted'));
+        makeLinks(card,[{label:'Inspect job',url:sameOrigin('jobs?jobid='+encodeURIComponent(s.summary.jobid)+'&summary')},
+          {label:'Review original JSON',url:sameOrigin(core.artifactUrl(s.summary.jobid))}]);
+      }else if(s.ci_id) {
+        makeLinks(card,[{label:'See pipeline details',url:sameOrigin('ci?ci_id='+s.ci_id)}]);
+      }
+      queueBox.append(card);
+    });
   }
-  async function handle(raw) {
-    const request=core.parseIntent(raw);
-    if (request.kind==='profile') { profileHelp(request);return; }
-    if (request.kind==='compare') {
-      talk('Looking for completed '+request.benchmark+' results in existing HammerDB Jobs…');
-      const pair=await resolvePair(request);
-      const comparison=core.compareJobs(pair[0],pair[1]);
-      lastComparison=comparison;
-      renderComparison(comparison);
-      talk('I compared measured artifacts '+comparison.pg.jobid+' and '+comparison.maria.jobid+
-        '. See the table and configuration caveats below. Sharing is offered, never automatic.');
+  async function loadProfile(ci) {
+    const jobIndex=core.normalizeJobList(await readJson(sameOrigin('ai-jobs'),256*1024));
+    const jobs=jobIndex.filter(j=>j.profile_id===ci.profile_id&&
+      j.database===ci.database&&j.benchmark==='TPROC-C').slice(0,40);
+    if(!jobs.length)throw Error('No linked profile job artifacts yet.');
+    const summaries={};
+    for(const item of jobs){
+      try{summaries[item.jobid]=await loadJob(item.jobid);}catch(_){}
+    }
+    return core.chooseProfileResult(ci,jobIndex,summaries);
+  }
+  async function updateSequence() {
+    if(polling)return;
+    polling=true;
+    try{
+      const pipelines=core.normalizePipelines(await readJson(sameOrigin('ai-pipelines'),256*1024));
+      lastPipelines=pipelines;
+      let changed=false;
+      for(let i=0;i<steps.length;i++){
+        const s=steps[i];
+        if(s.state!=='awaiting-submit' && s.state!=='running')continue;
+        let ci=s.ci_id?pipelines.find(p=>p.ci_id===s.ci_id):null;
+        if(!ci)ci=core.matchingPipeline(pipelines,s);
+        if(!ci)continue;
+        if(!s.ci_id){s.ci_id=ci.ci_id;s.state='running';changed=true;talk(core.DATABASES[s.database]+' pipeline '+ci.ci_id+' was submitted. Checking for completion.');}
+        if(['FAILED','ERROR','CANCELLED','CANCELED','ABORTED'].includes(ci.status)){
+          s.state='failed';changed=true;
+          talk(core.DATABASES[s.database]+' pipeline '+ci.ci_id+' ended with '+ci.status+'. The sequence will not start another run.');
+          break;
+        }
+        if(ci.status==='COMPLETE'){
+          try{
+            const profile=await loadProfile(ci);
+            s.state='complete';s.profile_id=profile.profile_id;s.summary=profile.selected;
+            s.run_count=profile.job_count;changed=true;
+            talk(core.DATABASES[s.database]+' completed: profile '+ci.profile_id+
+              ', '+profile.job_count+' measured job(s); peak NOPM job '+profile.selected.jobid+'.');
+            if(steps[i+1]&&steps[i+1].state==='planned')
+              talk('Next: '+core.DATABASES[steps[i+1].database]+' is ready for review in Pipelines.');
+          }catch(_){
+            // COMPLETE may appear before summaryjson artifacts are available.
+            s.profile_id=ci.profile_id;changed=true;
+          }
+        }
+        break; // Only the first unfinished step advances.
+      }
+      if(changed){saveSteps();renderQueue();}
+      if(steps.length>=2&&steps.every(s=>s.state==='complete')){
+        const reports=steps.map(s=>s.summary);
+        if(!lastComparison||lastComparison.reports.some((r,i)=>r.jobid!==reports[i].jobid)){
+          const comp=core.compareMany(reports);
+          renderComparison(comp);talk('All four-engine sequence steps that were requested are complete. I compared the actual job artifacts and recommend reviewing them for TPC-OSS sharing.');
+        }
+      }
+    }catch(err){status.textContent='Status unavailable: '+err.message;}
+    finally{polling=false;}
+  }
+  async function compareExisting(request){
+    if(request.workload!=='TPROC-C')throw Error('Phase 1 comparison supports TPROC-C profiles.');
+    const desired=request.databases.length?request.databases:Object.keys(core.DATABASES);
+    const selected=[];
+    if(request.ids && request.ids.length>=2){
+      for(const id of request.ids)selected.push(await loadJob(id));
+    } else {
+      const jobs=core.normalizeJobList(await readJson(sameOrigin('ai-jobs'),256*1024));
+      for(const db of desired){
+        let found=null;
+        for(const j of jobs.filter(item=>item.database===db&&item.benchmark==='TPROC-C'&&item.profile_id>0).slice(0,14)){
+          try{found=await loadJob(j.jobid);break;}catch(_){}
+        }
+        if(!found)throw Error('No completed '+core.DATABASES[db]+' TPROC-C profile artifact found.');
+        selected.push(found);
+      }
+    }
+    const comp=core.compareMany(selected);
+    renderComparison(comp);
+    talk('Compared '+comp.reports.map(s=>core.DATABASES[s.database]+' job '+s.jobid).join(', ')+
+      '. See the measured results and comparability warnings. Sharing them would help the community; publication requires your GitHub PR.');
+  }
+  async function handle(message){
+    const req=core.parseIntent(message);
+    if(req.kind==='profile'){prepareQueue(req);return;}
+    if(req.kind==='compare'){
+      if(steps.length>=2&&steps.every(s=>s.state==='complete')){
+        const comp=core.compareMany(steps.map(s=>s.summary));
+        renderComparison(comp);
+        talk('Compared the completed sequence. Please consider sharing each reviewed result with TPC-OSS.');
+      }else{
+        talk('Looking for completed TPROC-C profile artifacts in HammerDB Jobs…');
+        await compareExisting(req);
+      }
       return;
     }
-    if (request.kind==='share') {
-      if (lastComparison) {
-        sharePanel(lastComparison);
-        talk('Use the original JSON links below, review the artifact, then submit through TPC-OSS with your own GitHub account.');
-      } else {
-        talk('First compare two completed runs, or use the existing Jobs report to download a result artifact. The TPC-OSS link is below.');
-      }
+    if(req.kind==='share'){
+      talk('Sharing real benchmark results helps others make informed decisions. Review the original JSON for sensitive machine details, then use the TPC-OSS GitHub PR link below. Nothing is uploaded automatically.');
+      if(lastComparison)shareComparison(lastComparison);
       return;
     }
-    talk('Try “Please compare PostgreSQL to MariaDB”, “Run a PostgreSQL profile”, “Compare TPROC-H Postgres vs MariaDB”, or “Submit to GitHub”.');
+    talk('Try “Run profiles on MariaDB, PostgreSQL, MySQL and VillageSQL, then compare” or “Now VillageSQL 0.0.7” or “Compare the four databases”. You can also paste a cipush command to prepare that exact run.');
   }
   form.addEventListener('submit',async event=>{
     event.preventDefault();
-    if (busy) return;
-    const text=prompt.value.trim();
-    if (!text) return;
-    talk(text,'user');
-    prompt.value='';
-    setBusy(true,'Reading results…');
-    try { await handle(text); }
-    catch (err) {
-      talk('I could not complete that request: '+err.message+
-        ' You can inspect Jobs and Pipelines directly, or retry with two completed job IDs.');
-    }
-    finally { setBusy(false,'');prompt.focus(); }
+    if(busy)return;
+    const message=prompt.value.trim();
+    if(!message)return;
+    talk(message,'user');
+    prompt.value='';busy=true;send.disabled=true;status.textContent='Processing…';
+    try{await handle(message);await updateSequence();}
+    catch(err){talk('I could not complete that: '+err.message);}
+    finally{busy=false;send.disabled=false;status.textContent='';prompt.focus();}
   });
-  talk('Ask me to compare PostgreSQL and MariaDB. I use only measured results in this HammerDB Web Service. No data is sent to an AI provider.');
+  $('hdb-ai-refresh').addEventListener('click',async()=>{await updateSequence();if(!polling)talk('Checked existing pipeline statuses.');});
+  $('hdb-ai-clear').addEventListener('click',()=>{
+    if(!window.confirm('Clear the locally planned sequence? This does not cancel existing benchmark jobs.'))return;
+    steps=[];lastComparison=null;saveSteps();renderQueue();talk('Sequence cleared. Existing HammerDB pipelines and jobs were not changed.');
+  });
+  renderQueue();
+  updateSequence();
+  setInterval(()=>{if(steps.some(s=>s.state==='awaiting-submit'||s.state==='running'))updateSequence();},15000);
+  talk('Ask me to run and compare MariaDB, PostgreSQL, MySQL and VillageSQL profiles. I will check the existing jobs and help you submit reviewed results to TPC-OSS.');
 })();
