@@ -107,7 +107,7 @@ set cli_common_init {set UserDefaultDir [ file dirname [ info script ] ]
 	 set loaddirname $UserDefaultDir
   }
 
-  append loadlist { genvu.tcl genxml.tcl gentpcc.tcl gentpch.tcl gengen.tcl genmodes.tcl genmetricscli.tcl gentccmn.tcl gentccli.tcl geninitcli.tcl gencli.tcl genhelp.tcl genstep.tcl genci.tcl }
+  append loadlist { genvu.tcl genxml.tcl gentpcc.tcl gentpch.tcl gengen.tcl genmodes.tcl genmetricscli.tcl gentccmn.tcl gentccli.tcl geninitcli.tcl gencli.tcl genash.tcl genhelp.tcl genstep.tcl genci.tcl }
   for { set loadcount 0 } { $loadcount < [llength $loadlist] } { incr loadcount } {
     set f [lindex $loadlist $loadcount]
     set loadtext [ file rootname $f ]
@@ -212,6 +212,9 @@ tclpy.eval('set hdb_version $hdb_version')
 init_tcl = (r'''\n$cli_common_init\n''')
 tclpy.eval(init_tcl)
 from hammerdb import \*
+ashstart = lambda: tclpy.eval('ashstart')
+ashstop = lambda: tclpy.eval('ashstop')
+ashstatus = lambda: tclpy.eval('ashstatus')
 sys.stdout.flush()
 sys.ps1 = '>>>'"
     } else {
@@ -226,6 +229,9 @@ tclpy.eval('set hdb_version $hdb_version')
 init_tcl = (r'''\n$cli_common_init\n''')
 tclpy.eval(init_tcl)
 from hammerdb import \*
+ashstart = lambda: tclpy.eval('ashstart')
+ashstop = lambda: tclpy.eval('ashstop')
+ashstatus = lambda: tclpy.eval('ashstatus')
 sys.stdout.flush()
 sys.ps1 = '>>>'"
 }
@@ -368,6 +374,14 @@ sys.ps1 = '>>>'"
     send "tclpy.eval(init_tcl)\x0D"
     expect ">>>"
     send "from hammerdb import *\x0D"
+    expect ">>>"
+    # The Python compatibility module is external to this source tree.
+    # Explicitly export ASH wrappers to its interactive/auto-script namespace.
+    send "ashstart = lambda: tclpy.eval('ashstart')\x0D"
+    expect ">>>"
+    send "ashstop = lambda: tclpy.eval('ashstop')\x0D"
+    expect ">>>"
+    send "ashstatus = lambda: tclpy.eval('ashstatus')\x0D"
     expect ">>>"
     if { $autostart::autostartap == "true" } { send "runscript(1)\x0D" } else { send "runscript(0)\x0D" }
     send "sys.stdout.flush()\x0D"
