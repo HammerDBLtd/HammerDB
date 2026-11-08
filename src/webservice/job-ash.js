@@ -67,7 +67,7 @@
     };
     let selection = {}, current = null, controller = null, timer = null, generation = 0;
     let view = 'sql-text', focus = 'sql', count = {sql: 50, events: 50, sessions: 50};
-    let selectedID = null;
+    let selectedID = null, chartMode = 'area';
     const colorsFor = () => current && current.database === 'pg' ? PG_COLORS : MYSQL_COLORS;
     const key = name => String(name || 'Other').toLowerCase().replace(/_/g, '');
     const colorFor = name => (colorsFor().find(entry => key(entry[0]) === key(name)) || [null, '#8693A9'])[1];
@@ -124,11 +124,14 @@
     }
     function legendPaint(rows) {
       legend.replaceChildren();
-      const used = new Set(rows.map(r => key(category(r))));
-      for (const [name, color] of colorsFor()) {
-        if (!used.has(key(name))) continue;
-        const swatch = attr('span', {'class': 'hdb-ash-legend-item'});
-        swatch.append(attr('i', {'class': 'hdb-ash-swatch', 'style': 'background-color:' + color}), attr('span', {}, name));
+      const native = [...new Set(rows.map(category))];
+      const used = new Set(native.map(key));
+      const standard = colorsFor().map(([name]) => name).filter(name => used.has(key(name)));
+      const extras = native.filter(name => !standard.some(known => key(known) === key(name))).sort();
+      for (const name of [...standard, ...extras]) {
+        const swatch = attr('span', {'class':'hdb-ash-legend-item'});
+        swatch.append(attr('i', {'class':'hdb-ash-swatch','style':'background-color:'+colorFor(name)}),
+          attr('span', {}, name));
         legend.append(swatch);
       }
     }
@@ -140,6 +143,18 @@
         legend.replaceChildren();
         return;
       }
+      const modes = attr('div', {'class':'hdb-ash-chart-modes',role:'group','aria-label':'ASH timeline display'});
+      for (const [mode, name] of [['area','Area'],['bars','Bars']]) {
+        const button = attr('button', {'type':'button','data-ash-chart-mode':mode,
+          'aria-pressed':String(chartMode===mode)}, name);
+        button.addEventListener('click', () => {
+          if (chartMode===mode) return;
+          chartMode=mode;
+          paintChart(current || report);
+        });
+        modes.append(button);
+      }
+      chart.append(modes);
       legendPaint(points);
       const left = Math.min(...points.map(r => Number(r.begin)));
       const right = Math.max(...points.map(r => Number(r.end)));
@@ -147,20 +162,41 @@
       const WIDTH = 1160, HEIGHT = 278, m = {left: 54, right: 18, top: 20, bottom: 35};
       const pw = WIDTH - m.left - m.right, ph = HEIGHT - m.top - m.bottom;
       const byBucket = new Map();
+      const canonical = name => (colorsFor().find(([known]) => key(known)===key(name)) || [name])[0];
       for (const row of points) {
         const start = num(row.begin), end = num(row.end);
         const k = String(start) + ':' + String(end);
         if (!byBucket.has(k)) byBucket.set(k, {start, end, groups: new Map()});
         const bucket = byBucket.get(k);
-        const cls = category(row);
+        const cls = canonical(category(row));
         bucket.groups.set(cls, (bucket.groups.get(cls) || 0) + Math.max(0, num(row.aas)));
       }
-      const buckets = [...byBucket.values()].sort((a,b) => a.start-b.start);
-      const ymax = Math.max(1, num(report.driver_cpucount), ...buckets.flatMap(b => [...b.groups.values()]));
+      const buckets = [...byBucket.values()].sort((a,b) => a.start-b.start || b.end-a.end);
+      const known = colorsFor().map(([name]) => name);
+      const extra = [...new Set(buckets.flatMap(b => [...b.groups.keys()]))]
+        .filter(name => !known.some(cls => key(cls)===key(name))).sort();
+      const classes = [...known.filter(name => buckets.some(b => b.groups.has(name))), ...extra];
+      // Do not double-paint overlapping refresh windows, or bridge unsampled gaps.
+      const timeline = [];
+      for (const bucket of buckets) {
+        const previous = timeline[timeline.length-1];
+        const start = previous ? Math.max(previous.end,bucket.start) : bucket.start;
+        if (start>=bucket.end) continue;
+        const lower = new Map(); let total=0;
+        for (const cls of classes) {
+          lower.set(cls,total);
+          total += Math.max(0,bucket.groups.get(cls)||0);
+        }
+        timeline.push({...bucket,start,lower,total});
+      }
+      const ymax = Math.max(1, num(report.driver_cpucount), ...timeline.map(b => b.total));
       const top = Math.ceil(ymax / 5) * 5;
       const X = t => m.left + (t-left)/(right-left)*pw;
       const Y = value => m.top + ph - value/top*ph;
-      const svg = svgNode('svg', {viewBox: '0 0 '+WIDTH+' '+HEIGHT, role: 'img', 'aria-label': 'Average active sessions, overlapping wait-class bars'});
+      const svg = svgNode('svg', {viewBox:'0 0 '+WIDTH+' '+HEIGHT,role:'img',
+        'aria-label':chartMode==='area'
+          ? 'Average active sessions, continuous stacked wait-class steps'
+          : 'Average active sessions, overlapping wait-class bars'});
       for (let i=0; i<=5; i++) {
         const value = top*i/5, y = Y(value);
         svg.append(svgNode('line', {x1:m.left,y1:y,x2:WIDTH-m.right,y2:y,stroke:'currentColor','stroke-opacity':'.18','stroke-dasharray':'2 5'}));
@@ -171,16 +207,68 @@
         svg.append(svgNode('line', {x1:x,y1:m.top,x2:x,y2:Y(0),stroke:'currentColor','stroke-opacity':'.12','stroke-dasharray':'2 5'}));
         svg.append(svgNode('text', {x:x,y:HEIGHT-11,'text-anchor':i===0?'start':i===6?'end':'middle'}, timestamp(t)));
       }
-      // The Desktop uses overlaid bars (not additive stacking). Draw taller
-      // categories first; short bars in front remain visible and readable.
-      for (const bucket of buckets) {
-        const x=X(bucket.start), width=Math.max(1,X(bucket.end)-x-.45);
-        const sorted=[...bucket.groups].sort((a,b)=>b[1]-a[1]);
-        for (const [cls,aas] of sorted) {
-          if (aas<=0) continue;
-          const rect=svgNode('rect',{x,y:Y(aas),width,height:Math.max(0,Y(0)-Y(aas)),fill:colorFor(cls),'class':'hdb-ash-bar'});
-          rect.append(svgNode('title',{},cls+': '+round(aas)+' AAS · '+timestamp(bucket.start)+'–'+timestamp(bucket.end)));
-          svg.append(rect);
+      if (chartMode==='bars') {
+        // Optional original BLT-style overlaid bars for Desktop comparison.
+        for (const bucket of buckets) {
+          const x=X(bucket.start),width=Math.max(1,X(bucket.end)-x-.45);
+          for (const [cls,aas] of [...bucket.groups].sort((a,b)=>b[1]-a[1])) {
+            if (aas<=0) continue;
+            const rect=svgNode('rect',{x,y:Y(aas),width,height:Math.max(0,Y(0)-Y(aas)),
+              fill:colorFor(cls),'class':'hdb-ash-bar','data-ash-group':cls});
+            rect.append(svgNode('title',{},cls+': '+round(aas)+' AAS · '+
+              timestamp(bucket.start)+'–'+timestamp(bucket.end)));
+            svg.append(rect);
+          }
+        }
+      } else {
+        // A single filled step path per class and contiguous sampled run.
+        // Vertical transitions preserve the exact AAS; no curve interpolation.
+        const areaPath = parts => {
+          const commands=['M '+X(parts[0].start)+' '+Y(parts[0].upper)];
+          for (let i=0;i<parts.length;i++) {
+            const part=parts[i];
+            if (i) {
+              commands.push('L '+X(part.start)+' '+Y(parts[i-1].upper));
+              commands.push('L '+X(part.start)+' '+Y(part.upper));
+            }
+            commands.push('L '+X(part.end)+' '+Y(part.upper));
+          }
+          for (let i=parts.length-1;i>=0;i--) {
+            const part=parts[i];
+            commands.push('L '+X(part.end)+' '+Y(part.lower));
+            commands.push('L '+X(part.start)+' '+Y(part.lower));
+          }
+          return commands.join(' ')+' Z';
+        };
+        for (const cls of classes) {
+          let run=[];
+          const flush = () => {
+            if (run.some(part => part.aas>0)) {
+              const path=svgNode('path',{'class':'hdb-ash-area','data-ash-group':cls,
+                d:areaPath(run),fill:colorFor(cls)});
+              path.append(svgNode('title',{},cls+' wait-class activity'));
+              svg.append(path);
+            }
+            run=[];
+          };
+          for (const bucket of timeline) {
+            if (run.length && bucket.start>run[run.length-1].end+0.000001) flush();
+            const aas=Math.max(0,bucket.groups.get(cls)||0);
+            const lower=bucket.lower.get(cls);
+            run.push({start:bucket.start,end:bucket.end,lower,upper:lower+aas,aas});
+          }
+          flush();
+        }
+        // Hit targets expose exact class/total AAS and preserve SVG dragging.
+        for (const bucket of timeline) {
+          const detail=[...bucket.groups].filter(([,aas])=>aas>0)
+            .map(([cls,aas])=>cls+': '+round(aas)).join(' · ');
+          const hit=svgNode('rect',{'class':'hdb-ash-chart-hitbox',x:X(bucket.start),
+            y:m.top,width:Math.max(0,X(bucket.end)-X(bucket.start)),height:ph,
+            fill:'transparent','pointer-events':'all'});
+          hit.append(svgNode('title',{},timestamp(bucket.start)+'–'+timestamp(bucket.end)+
+            ' · Total: '+round(bucket.total)+' AAS'+(detail?' · '+detail:'')));
+          svg.append(hit);
         }
       }
       if (valid(report.driver_cpucount) && num(report.driver_cpucount)>0) {
