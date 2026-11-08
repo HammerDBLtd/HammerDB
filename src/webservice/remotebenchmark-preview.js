@@ -77,7 +77,7 @@
         if (request?.pipeline !== 'custom' || String(request.api_version) !== '1' ||
             !Array.isArray(request.operations) || !request.operations.length ||
             request.operations.some(operation => !['buildschema', 'checkschema', 'run', 'deleteschema'].includes(operation))) {
-          throw failure('INVALID_FIXTURE_INPUT', 'A structured wizard plan is required for the workflow test.');
+          throw failure('INVALID_FIXTURE_INPUT', 'A structured remote benchmark plan is required for the configuration preview.');
         }
         const fingerprint = JSON.stringify(request);
         if (request.request_id && requests.has(request.request_id)) {
@@ -156,5 +156,5 @@
   }
   const api = {createAdapter, scenarios};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (global.document) global.HammerDBWizardMock = api;
+  if (global.document) global.HammerDBRemoteBenchmarkPreview = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

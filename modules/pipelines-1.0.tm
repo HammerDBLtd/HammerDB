@@ -1,6 +1,6 @@
 # pipelines-1.0.tm
 package provide pipelines 1.0
-package require pipelinewizard 1.0
+package require remotebenchmark 1.0
 
 namespace eval pipelines {
     namespace export wapp-page-pipelines
@@ -79,8 +79,8 @@ namespace eval pipelines {
         wapp-subst "(function(){\n"
         wapp-subst "  var REFRESH_MS = $ms;\n"
         wapp-subst "  setInterval(function(){\n"
-        # Do not discard an in-progress wizard when refreshing pipeline status.
-        wapp-subst {    if (document.querySelector('[data-pipeline-wizard][data-dirty="true"]')) return;}
+        # Do not discard an in-progress remote when refreshing pipeline status.
+        wapp-subst {    if (document.querySelector('[data-remote-benchmark][data-dirty="true"]')) return;}
         wapp-subst "    var base = window.location.pathname + window.location.search;\n"
         wapp-subst {    base = base.replace(/([?&])_r=\\d+/, '$1').replace(/(\\?|&)$/, '');\n}
         wapp-subst {    var sep = (base.indexOf('?') >= 0) ? '&' : '?';\n}
@@ -852,7 +852,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         wapp-subst {<div class="hdb-page aut-wrap">}
 
-        ::pipelinewizard::render $B
+        ::remotebenchmark::render $B
 
         __render_last_if_any
 
@@ -973,8 +973,8 @@ document.addEventListener('DOMContentLoaded', function () {
         wapp-subst {</div>}
         wapp-subst {</div>}
 
-        # Progressive enhancement: preserve the original controls if the wizard
-        # script cannot load. A successful wizard mount selects one workflow.
+        # Progressive enhancement: preserve the original controls if the remote
+        # script cannot load. A successful remote mount selects one workflow.
         wapp-subst {<details id="existing-pipeline" class="hdb-section" open style="width:100%; max-width:980px; margin:0 0 24px 0;"><summary>Provision using existing Pipeline</summary>}
 
         # database chooser
@@ -1082,7 +1082,7 @@ wapp-subst {</div>}
 wapp-subst {</div>}
 
         wapp-subst {<div class="hdb-actions-left aut-actions" style="width:100%; max-width:980px; text-align:left;">}
-        wapp-subst {<p id="pipeline-live-notice" class="aut-mini"><strong>Live source-build Pipeline.</strong> Run Benchmark uses the configured CI and can provision a database and run benchmarks. This is separate from the wizard simulation.</p>}
+        wapp-subst {<p id="pipeline-live-notice" class="aut-mini"><strong>Live source-build Pipeline.</strong> Run Benchmark uses the configured CI and can provision a database and run benchmarks. This is separate from the remote simulation.</p>}
         wapp-subst {<button class="aut-btn" type="submit" form="runform">Run Benchmark</button>}
         wapp-subst {</div>}
         wapp-subst {</form>}

@@ -1,0 +1,37 @@
+#hdb-remote-benchmark{max-width:980px;margin:0 0 28px;padding:20px;border:1px solid var(--hdb-border,#b9c8d8);border-radius:8px;box-sizing:border-box}
+#hdb-remote-benchmark [hidden]{display:none!important}
+#hdb-remote-benchmark h2{margin:0 0 12px;font-size:1.45rem}
+#hdb-remote-benchmark h3{margin:18px 0 12px;font-size:1.15rem}
+#hdb-remote-benchmark p{line-height:1.55}
+#hdb-remote-benchmark fieldset{border:0;padding:0;margin:14px 0;min-width:0}
+#hdb-remote-benchmark legend{font-weight:600;margin:0 0 8px}
+#hdb-remote-benchmark label{display:block;line-height:1.45;margin:10px 0}
+#hdb-remote-benchmark input:not([type=radio]):not([type=checkbox]),#hdb-remote-benchmark select{display:block;box-sizing:border-box;width:100%;max-width:100%;padding:9px;margin-top:5px;font:inherit;color:inherit;background:var(--hdb-card-bg,transparent);border:1px solid #8797aa;border-radius:4px}
+#hdb-remote-benchmark input[type=radio],#hdb-remote-benchmark input[type=checkbox]{margin-right:7px;accent-color:#1967b6}
+#hdb-remote-benchmark button{padding:9px 16px;border:1px solid #7e8d9f;border-radius:4px;font:inherit;color:inherit;background:var(--hdb-card-bg,transparent);cursor:pointer;min-height:42px}
+#hdb-remote-benchmark button:focus-visible,#hdb-remote-benchmark input:focus-visible,#hdb-remote-benchmark select:focus-visible,#hdb-remote-benchmark summary:focus-visible,#hdb-remote-benchmark a:focus-visible{outline:3px solid #2c7dd2;outline-offset:3px}
+#hdb-remote-benchmark .remote-segmented{display:flex;flex-wrap:wrap;gap:0}
+#hdb-remote-benchmark .remote-segmented legend{width:100%}
+#hdb-remote-benchmark .remote-segmented label{position:relative;display:flex;align-items:center;margin:0;border:1px solid #8797aa;padding:10px 14px;cursor:pointer;min-height:24px}
+#hdb-remote-benchmark .remote-segmented label:has(input:checked){background:#185b9d;color:#fff;border-color:#185b9d}
+#hdb-remote-benchmark .remote-segmented label:first-of-type{border-radius:5px 0 0 5px}
+#hdb-remote-benchmark .remote-segmented label:last-of-type{border-radius:0 5px 5px 0}
+#hdb-remote-benchmark .remote-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px}
+#hdb-remote-benchmark .remote-help{font-size:.9em;opacity:.85}
+#hdb-remote-benchmark .remote-notice{padding:12px;border-left:4px solid #3778bd;background:rgba(55,120,189,.08)}
+#hdb-remote-benchmark .remote-error,#hdb-remote-benchmark .remote-destructive{padding:12px;border:1px solid #b94747;border-radius:4px;background:rgba(185,71,71,.08)}
+#hdb-remote-benchmark .remote-error{margin:10px 0}
+#hdb-remote-benchmark .remote-steps{display:flex;flex-wrap:wrap;list-style:none;gap:8px 20px;margin:18px 0;padding:0}
+#hdb-remote-benchmark .remote-steps li{padding:5px 0;border-bottom:3px solid transparent}
+#hdb-remote-benchmark .remote-steps [aria-current]{font-weight:bold;border-color:#3778bd}
+#hdb-remote-benchmark .remote-actions{display:flex;gap:10px;margin-top:22px}
+#hdb-remote-benchmark #remote-next,#hdb-remote-benchmark #remote-preview{background:#185b9d;color:#fff;border-color:#185b9d}
+#hdb-remote-benchmark pre{max-width:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid #8797aa;border-radius:4px}
+#hdb-remote-benchmark dl{display:grid;grid-template-columns:minmax(120px,1fr) minmax(0,3fr);gap:10px 14px}
+#hdb-remote-benchmark dt{font-weight:600}
+#hdb-remote-benchmark dd{margin:0;overflow-wrap:anywhere}
+#hdb-remote-benchmark .remote-share{margin-top:20px;font-weight:600}
+#hdb-remote-benchmark details{margin-top:16px;padding:10px 0}
+#hdb-remote-benchmark summary{cursor:pointer;font-weight:600}
+#hdb-remote-benchmark .remote-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+@media(max-width:600px){#hdb-remote-benchmark{padding:12px}#hdb-remote-benchmark .remote-grid{grid-template-columns:1fr}#hdb-remote-benchmark .remote-segmented{flex-direction:column}#hdb-remote-benchmark .remote-segmented label{border-radius:4px!important}#hdb-remote-benchmark dl{grid-template-columns:1fr;gap:4px}#hdb-remote-benchmark dd{margin-bottom:10px}}

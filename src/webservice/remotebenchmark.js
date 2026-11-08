@@ -1,4 +1,4 @@
-/* HammerDB 6.2 Stage 1: configuration and an explicitly simulated execution UI. */
+/* Remote benchmark target configuration preview; no live remote execution. */
 (function (global) {
   'use strict';
   const order = ['buildschema', 'checkschema', 'run', 'deleteschema'];
@@ -192,14 +192,14 @@
     existing.hidden = !visible;
     existing.open = visible;
     for (const control of existing.querySelectorAll('input,select,button')) {
-      if (!Object.prototype.hasOwnProperty.call(control, 'wizardOriginallyDisabled')) control.wizardOriginallyDisabled = control.disabled;
-      control.disabled = !visible || control.wizardOriginallyDisabled;
+      if (!Object.prototype.hasOwnProperty.call(control, 'remoteOriginallyDisabled')) control.remoteOriginallyDisabled = control.disabled;
+      control.disabled = !visible || control.remoteOriginallyDisabled;
     }
   }
 
   function mount(root, metadata) {
     const get = id => root.querySelector('#' + id);
-    const form = get('wizard-form');
+    const form = get('remote-form');
     let step = 0;
     // Existing Pipeline links reload the page with these query parameters.
     // Preserve that workflow without exposing a second set of active controls.
@@ -210,15 +210,15 @@
       confirm_build: false, confirm_delete: false, delete_confirmation: '', driver_vu: metadata.generic?.virtual_users || 1,
       avu_mode: 'auto', max_avu: 1, run_mode: 'single', profile: (metadata.generic?.autopilot_sequence || []).join(' '), share_result: true};
     const addOption = (select, value, text) => {const option = document.createElement('option'); option.value = value; option.textContent = text; select.append(option);};
-    for (const db of metadata.databases || []) addOption(get('wizard-database'), db.id, `${db.label}${db.library_status === 'available' ? '' : ' (client unavailable — preview only)'}`);
-    get('wizard-database').value = state.database;
+    for (const db of metadata.databases || []) addOption(get('remote-database'), db.id, `${db.label}${db.library_status === 'available' ? '' : ' (client unavailable — preview only)'}`);
+    get('remote-database').value = state.database;
     root.querySelector(`input[name="target_mode"][value="${state.target_mode}"]`).checked = true;
-    get('wizard-driver-vu').value = state.driver_vu;
-    get('wizard-profile-points').value = state.profile;
+    get('remote-driver-vu').value = state.driver_vu;
+    get('remote-profile-points').value = state.profile;
     const configuredProfiles = metadata.profiles || metadata.generic?.profiles || [];
-    for (const profile of configuredProfiles) addOption(get('wizard-profile'), typeof profile === 'string' ? profile : profile.id, typeof profile === 'string' ? profile : profile.label || profile.id);
+    for (const profile of configuredProfiles) addOption(get('remote-profile'), typeof profile === 'string' ? profile : profile.id, typeof profile === 'string' ? profile : profile.label || profile.id);
     root.querySelector('input[name="credential_mode"][value="profile"]').disabled = !configuredProfiles.length;
-    if (configuredProfiles.length) state.connection_profile = get('wizard-profile').value;
+    if (configuredProfiles.length) state.connection_profile = get('remote-profile').value;
     let busy = false;
     let generation = 0;
     let context = null;
@@ -240,14 +240,14 @@
     }
     function resetConfirmations() {
       state.confirm_build = false; state.confirm_delete = false; state.delete_confirmation = '';
-      get('wizard-confirm-build').checked = false; get('wizard-confirm-delete').checked = false; get('wizard-delete-text').value = '';
+      get('remote-confirm-build').checked = false; get('remote-confirm-delete').checked = false; get('remote-delete-text').value = '';
     }
     function renderField(field, destination) {
       const label = document.createElement('label'); label.dataset.fieldContainer = field.name;
       const caption = document.createElement('span'); caption.textContent = `${field.label || field.name} (${field.name})`;
       label.append(caption);
       const input = document.createElement(field.type === 'select' ? 'select' : 'input');
-      input.dataset.nativeField = field.name; input.id = 'wizard-native-' + field.name;
+      input.dataset.nativeField = field.name; input.id = 'remote-native-' + field.name;
       input.autocomplete = 'off'; input.spellcheck = false; input.required = Boolean(field.required);
       if (field.type === 'select') {
         for (const option of field.options || []) addOption(input, typeof option === 'object' ? option.value : option, typeof option === 'object' ? option.label : option);
@@ -266,7 +266,7 @@
             const conditions = [...(dependent.conditions || []), ...(dependent.condition ? [dependent.condition] : [])];
             if (dependent.type === 'checkbox' && conditions.some(condition => condition.name === field.name && condition.values?.includes('timed'))) {
               state.values[dependent.name] = false;
-              const control = get('wizard-native-' + dependent.name);
+              const control = get('remote-native-' + dependent.name);
               if (control) control.checked = false;
             }
           }
@@ -278,15 +278,15 @@
       label.append(input); destination.append(label);
     }
     function renderNativeFields() {
-      for (const id of ['wizard-connection-fields', 'wizard-connection-advanced-fields', 'wizard-essential-fields', 'wizard-advanced-fields']) get(id).replaceChildren();
+      for (const id of ['remote-connection-fields', 'remote-connection-advanced-fields', 'remote-essential-fields', 'remote-advanced-fields']) get(id).replaceChildren();
       const config = workload(state, metadata);
       if (!config) return;
-      for (const field of config.connection || []) renderField(field, get(field.advanced ? 'wizard-connection-advanced-fields' : 'wizard-connection-fields'));
-      for (const field of config.settings || []) renderField(field, get(field.advanced ? 'wizard-advanced-fields' : 'wizard-essential-fields'));
+      for (const field of config.connection || []) renderField(field, get(field.advanced ? 'remote-connection-advanced-fields' : 'remote-connection-fields'));
+      for (const field of config.settings || []) renderField(field, get(field.advanced ? 'remote-advanced-fields' : 'remote-essential-fields'));
       updateFieldDependencies();
     }
     function selectDatabase() {
-      const select = get('wizard-workload'); select.replaceChildren();
+      const select = get('remote-workload'); select.replaceChildren();
       for (const key of Object.keys(database(state, metadata)?.workloads || {})) addOption(select, key, key === 'C' ? 'TPROC-C — transactional / OLTP' : 'TPROC-H — analytic');
       if (!workload(state, metadata)) state.workload = select.options[0]?.value;
       select.value = state.workload;
@@ -295,63 +295,63 @@
     function updateControls() {
       const source = state.location === 'local' && state.target_mode === 'source';
       showSourcePipeline(source);
-      get('wizard-mode-notice').innerHTML = source
+      get('remote-mode-notice').innerHTML = source
         ? '<strong>Existing live Pipeline</strong> — Run Benchmark below invokes the configured source-build CI. It can provision a database and execute benchmark or schema operations.'
         : '<strong>Simulation mode</strong> — try the existing-database workflow with simulated responses. No database is contacted, no benchmark or schema operation runs, and no GitHub contribution is made.';
-      get('wizard-local-mode').hidden = state.location === 'remote';
-      get('wizard-source-help').hidden = !source;
-      get('wizard-endpoint-choice').hidden = source;
-      get('wizard-database').disabled = source;
-      get('wizard-workload').disabled = source;
-      get('wizard-library-status').hidden = source;
-      get('wizard-location-help').textContent = state.location === 'remote'
-        ? 'The database already runs elsewhere, for example Amazon RDS, Aurora, Azure or an on-premises server. The location is relative to HammerDB, not your browser.'
-        : 'The database runs on the same server as HammerDB, for example the HammerDB Cloud EC2 instance.';
+      get('remote-local-mode').hidden = state.location === 'remote';
+      get('remote-source-help').hidden = !source;
+      get('remote-endpoint-choice').hidden = source;
+      get('remote-database').disabled = source;
+      get('remote-workload').disabled = source;
+      get('remote-library-status').hidden = source;
+      get('remote-location-help').textContent = state.location === 'remote'
+        ? 'Remote benchmark configuration is a preview. After validating self-managed EC2 runs, the next phase will support Amazon RDS and other remote endpoints. The location is relative to HammerDB, not your browser.'
+        : 'First validate the controlled self-managed EC2 environment using the existing live local/source-build Pipeline. The database can run on the HammerDB EC2 instance.';
       const db = database(state, metadata);
-      get('wizard-library-status').textContent = db?.library_status === 'available'
+      get('remote-library-status').textContent = db?.library_status === 'available'
         ? `${db.label} client adapter loaded. This workflow uses simulated execution only.`
         : `${db?.label || 'Database'} client unavailable — simulation only. A real run requires a supported client installation.`;
-      if (db?.native_driver_status === 'unavailable') get('wizard-library-status').textContent += ' The selected native database driver is not installed.';
-      get('wizard-profile-label').hidden = state.credential_mode !== 'profile';
-      get('wizard-profile').disabled = state.credential_mode !== 'profile';
-      get('wizard-credential-help').textContent = state.credential_mode === 'session'
+      if (db?.native_driver_status === 'unavailable') get('remote-library-status').textContent += ' The selected native database driver is not installed.';
+      get('remote-profile-label').hidden = state.credential_mode !== 'profile';
+      get('remote-profile').disabled = state.credential_mode !== 'profile';
+      get('remote-credential-help').textContent = state.credential_mode === 'session'
         ? 'Passwords stay in this page’s memory and are discarded when the simulation starts or the target changes. Only placeholders reach the simulator; no credentials are checked.'
         : 'The selected profile is a configured reference. Simulation does not retrieve or validate profile credentials.';
-      get('wizard-simple-operations').hidden = state.workflow !== 'benchmark';
-      get('wizard-individual-operations').hidden = state.workflow !== 'operations';
+      get('remote-simple-operations').hidden = state.workflow !== 'benchmark';
+      get('remote-individual-operations').hidden = state.workflow !== 'operations';
       const selected = operations(state);
-      get('wizard-build-confirmation').hidden = !selected.includes('buildschema');
-      get('wizard-delete-confirmation').hidden = !selected.includes('deleteschema');
-      get('wizard-delete-target').textContent = deletionTarget(state, metadata);
-      get('wizard-run-options').hidden = !selected.includes('run');
-      get('wizard-share-result').disabled = !selected.includes('run');
-      get('wizard-manual-avu').hidden = state.avu_mode !== 'manual';
-      get('wizard-profile-points-label').hidden = state.run_mode !== 'profile';
+      get('remote-build-confirmation').hidden = !selected.includes('buildschema');
+      get('remote-delete-confirmation').hidden = !selected.includes('deleteschema');
+      get('remote-delete-target').textContent = deletionTarget(state, metadata);
+      get('remote-run-options').hidden = !selected.includes('run');
+      get('remote-share-result').disabled = !selected.includes('run');
+      get('remote-manual-avu').hidden = state.avu_mode !== 'manual';
+      get('remote-profile-points-label').hidden = state.run_mode !== 'profile';
       const profile = profilePoints(state, metadata);
       const ceiling = profile.length && profile.every(point => Number.isSafeInteger(point) && point > 0) ? Math.max(...profile) : null;
-      get('wizard-auto-help').textContent = state.workload === 'C'
+      get('remote-auto-help').textContent = state.workload === 'C'
         ? `Auto uses the configured Autopilot/profile sequence: ${profile.join(', ') || 'not configured'}.${ceiling ? ` Configured ceiling: ${ceiling}; this is not a measured optimum or an admission limit.` : ''} Profile mode measures increasing concurrency points; Single mode remains one run.`
         : 'Auto uses the workload’s query-user settings. A real run must validate effective TPROC-H concurrency limits; TPROC-C throughput profiles are not applied.';
-      get('wizard-run-mode').querySelector('option[value="profile"]').disabled = state.workload !== 'C';
-      if (state.workload !== 'C' && state.run_mode === 'profile') {state.run_mode = 'single'; get('wizard-run-mode').value = 'single';}
-      get('wizard-profile-points-label').hidden = state.run_mode !== 'profile';
-      get('wizard-next').hidden = source || step === 3;
-      get('wizard-next').textContent = step === 2 ? 'Review request' : 'Continue';
-      get('wizard-back').hidden = step === 0;
-      get('wizard-back').disabled = busy;
+      get('remote-run-mode').querySelector('option[value="profile"]').disabled = state.workload !== 'C';
+      if (state.workload !== 'C' && state.run_mode === 'profile') {state.run_mode = 'single'; get('remote-run-mode').value = 'single';}
+      get('remote-profile-points-label').hidden = state.run_mode !== 'profile';
+      get('remote-next').hidden = source || step === 3;
+      get('remote-next').textContent = step === 2 ? 'Review request' : 'Continue';
+      get('remote-back').hidden = step === 0;
+      get('remote-back').disabled = busy;
       updateFieldDependencies();
     }
     function showStep(next) {
       step = next;
-      root.querySelectorAll('[data-wizard-step]').forEach((panel, index) => {panel.hidden = index !== step;});
-      root.querySelectorAll('.wizard-steps li').forEach((item, index) => {if (index === step) item.setAttribute('aria-current', 'step'); else item.removeAttribute('aria-current');});
-      get('wizard-error').hidden = true;
+      root.querySelectorAll('[data-remote-step]').forEach((panel, index) => {panel.hidden = index !== step;});
+      root.querySelectorAll('.remote-steps li').forEach((item, index) => {if (index === step) item.setAttribute('aria-current', 'step'); else item.removeAttribute('aria-current');});
+      get('remote-error').hidden = true;
       updateControls();
-      root.querySelector(`[data-wizard-step="${step}"] h3`).focus();
+      root.querySelector(`[data-remote-step="${step}"] h3`).focus();
     }
     function showErrors(messages) {
-      get('wizard-error').textContent = messages.join(' ');
-      get('wizard-error').hidden = false; get('wizard-error').focus();
+      get('remote-error').textContent = messages.join(' ');
+      get('remote-error').hidden = false; get('remote-error').focus();
     }
     function renderReview(request) {
       const dl = document.createElement('dl');
@@ -373,28 +373,28 @@
       row('Share result to HammerDB leaderboard', !request.operations.includes('run') ? 'Not applicable — no benchmark selected' : request.share_result ? 'Enabled — contribution preparation will be simulated' : 'Disabled');
       row('Execution', 'Simulation only — no real benchmark or schema operation');
       reviewedRequest = JSON.parse(JSON.stringify(request));
-      get('wizard-review').replaceChildren(dl);
-      get('wizard-request-json').textContent = JSON.stringify(reviewRequest(request), null, 2);
-      get('wizard-status').textContent = '';
-      get('wizard-progress').hidden = true;
-      get('wizard-preview').textContent = 'Start simulated run';
+      get('remote-review').replaceChildren(dl);
+      get('remote-request-json').textContent = JSON.stringify(reviewRequest(request), null, 2);
+      get('remote-status').textContent = '';
+      get('remote-progress').hidden = true;
+      get('remote-preview').textContent = 'Start simulated run';
     }
     const adapters = new Map();
     const terminal = new Set(['completed', 'failed', 'partial', 'cancelled']);
     let requestSerial = 0;
     function setBusy(value) {
       busy = value;
-      get('wizard-preview').disabled = value;
-      get('wizard-scenario').disabled = value;
-      get('wizard-back').disabled = value;
-      get('wizard-cancel').hidden = !value || !context?.pipeline_id;
-      get('wizard-cancel').disabled = false;
-      if (!value) get('wizard-retry-status').hidden = true;
+      get('remote-preview').disabled = value;
+      get('remote-scenario').disabled = value;
+      get('remote-back').disabled = value;
+      get('remote-cancel').hidden = !value || !context?.pipeline_id;
+      get('remote-cancel').disabled = false;
+      if (!value) get('remote-retry-status').hidden = true;
     }
     function setStatus(message, status) {
-      get('wizard-status').textContent = message;
-      get('wizard-status').dataset.status = status;
-      get('wizard-progress').dataset.status = status;
+      get('remote-status').textContent = message;
+      get('remote-status').dataset.status = status;
+      get('remote-progress').dataset.status = status;
     }
     function renderSnapshot(snapshot) {
       if (snapshot?.simulated !== true || !/^SIM-/.test(snapshot.pipeline_id || '')) throw new Error('Unlabelled simulation response');
@@ -402,30 +402,30 @@
       if (snapshot.jobs?.some(job => job.simulated !== true || !(snapshot.job_ids || []).includes(job.job_id) ||
           job.pipeline_id && job.pipeline_id !== snapshot.pipeline_id)) throw new Error('Simulation result contains an unrelated Job');
       if (context) context.snapshot = snapshot;
-      get('wizard-progress').hidden = false;
-      get('wizard-progress').dataset.status = snapshot.status;
-      get('wizard-pipeline-id').textContent = `Simulated Pipeline ${snapshot.pipeline_id} — ${snapshot.status}`;
-      get('wizard-operation-progress').replaceChildren();
+      get('remote-progress').hidden = false;
+      get('remote-progress').dataset.status = snapshot.status;
+      get('remote-pipeline-id').textContent = `Simulated Pipeline ${snapshot.pipeline_id} — ${snapshot.status}`;
+      get('remote-operation-progress').replaceChildren();
       for (const operation of snapshot.operations || []) {
         const item = document.createElement('li'); item.dataset.operation = operation.operation; item.dataset.status = operation.status;
         item.textContent = `${labels[operation.operation] || operation.operation}: ${operation.status}${operation.job_ids?.length ? ` — simulated Jobs ${operation.job_ids.join(', ')}` : ''}`;
-        get('wizard-operation-progress').append(item);
+        get('remote-operation-progress').append(item);
       }
       const sharing = snapshot.sharing;
-      get('wizard-sharing-status').textContent = `Simulated sharing: ${sharing?.status || 'not applicable'}. ${sharing?.message || 'No contribution was made.'}`;
-      get('wizard-sharing-status').dataset.status = sharing?.status || 'not_applicable';
+      get('remote-sharing-status').textContent = `Simulated sharing: ${sharing?.status || 'not applicable'}. ${sharing?.message || 'No contribution was made.'}`;
+      get('remote-sharing-status').dataset.status = sharing?.status || 'not_applicable';
       if (snapshot.jobs) {
-        get('wizard-simulated-jobs').replaceChildren();
+        get('remote-simulated-jobs').replaceChildren();
         for (const job of snapshot.jobs) {
           const details = document.createElement('details'); details.dataset.simulatedJob = job.job_id;
           const title = document.createElement('summary'); title.textContent = `Simulated Job ${job.job_id} — ${labels[job.operation] || job.operation}: ${job.status}`;
           const note = document.createElement('p'); note.textContent = 'Simulation fixture only. No database operation ran and no performance was measured.';
           const pre = document.createElement('pre'); pre.textContent = JSON.stringify(reviewRequest(job), null, 2);
-          details.append(title, note, pre); get('wizard-simulated-jobs').append(details);
+          details.append(title, note, pre); get('remote-simulated-jobs').append(details);
         }
         if (downloadURL) URL.revokeObjectURL(downloadURL);
         downloadURL = URL.createObjectURL(new Blob([JSON.stringify(reviewRequest(snapshot), null, 2)], {type: 'application/json'}));
-        get('wizard-download').href = downloadURL; get('wizard-download').hidden = false;
+        get('remote-download').href = downloadURL; get('remote-download').hidden = false;
       }
     }
     async function completeSimulation(ctx, snapshot) {
@@ -434,7 +434,7 @@
       if (token !== generation) return;
       renderSnapshot(result);
       setBusy(false);
-      get('wizard-preview').textContent = 'Start another simulated run';
+      get('remote-preview').textContent = 'Start another simulated run';
       if (result.benchmark_status === 'completed' && snapshot.status === 'failed') {
         setStatus('Simulated benchmark completed; a later cleanup operation failed. The successful simulated Jobs remain available below.', snapshot.status);
       } else if (result.benchmark_status === 'completed' && result.sharing?.status === 'failed') {
@@ -447,7 +447,7 @@
       if (ctx.polling) return;
       const token = ctx.token;
       ctx.polling = true;
-      get('wizard-retry-status').hidden = true;
+      get('remote-retry-status').hidden = true;
       try {while (token === generation && busy) {
         try {
           const snapshot = await ctx.adapter.status(ctx.pipeline_id);
@@ -461,13 +461,13 @@
           setStatus(error?.code === 'SIMULATED_TIMEOUT'
             ? 'Simulated status timeout. Retry status for this same Pipeline or cancel; no duplicate run is submitted.'
             : 'The simulated response is unavailable. Retry status for this same Pipeline or cancel.', 'timeout');
-          get('wizard-retry-status').hidden = false;
+          get('remote-retry-status').hidden = false;
           return;
         }
       }} finally {ctx.polling = false;}
     }
     form.addEventListener('submit', event => event.preventDefault());
-    const markEdited = event => {root.dataset.dirty = 'true'; if (event.target.id !== 'wizard-scenario') reviewedRequest = null;};
+    const markEdited = event => {root.dataset.dirty = 'true'; if (event.target.id !== 'remote-scenario') reviewedRequest = null;};
     form.addEventListener('input', markEdited);
     form.addEventListener('change', markEdited);
     for (const radio of root.querySelectorAll('input[name="location"]')) radio.addEventListener('change', () => {
@@ -478,35 +478,35 @@
     for (const radio of root.querySelectorAll('input[name="target_mode"]')) radio.addEventListener('change', () => {
       state.target_mode = radio.value; clearSecrets(); resetConfirmations(); updateControls();
     });
-    get('wizard-existing-link').addEventListener('click', () => {const existing = document.getElementById('existing-pipeline'); if (existing) existing.open = true;});
-    get('wizard-database').addEventListener('change', event => {state.database = event.target.value; selectDatabase();});
-    get('wizard-workload').addEventListener('change', event => {state.workload = event.target.value; state.values = {}; resetConfirmations(); renderNativeFields(); updateControls();});
-    get('wizard-profile').addEventListener('change', event => {state.connection_profile = event.target.value; clearSecrets(); resetConfirmations(); updateControls();});
+    get('remote-existing-link').addEventListener('click', () => {const existing = document.getElementById('existing-pipeline'); if (existing) existing.open = true;});
+    get('remote-database').addEventListener('change', event => {state.database = event.target.value; selectDatabase();});
+    get('remote-workload').addEventListener('change', event => {state.workload = event.target.value; state.values = {}; resetConfirmations(); renderNativeFields(); updateControls();});
+    get('remote-profile').addEventListener('change', event => {state.connection_profile = event.target.value; clearSecrets(); resetConfirmations(); updateControls();});
     for (const radio of root.querySelectorAll('input[name="credential_mode"]')) radio.addEventListener('change', () => {state.credential_mode = radio.value; clearSecrets(); resetConfirmations(); updateControls();});
     for (const radio of root.querySelectorAll('input[name="workflow"]')) radio.addEventListener('change', () => {state.workflow = radio.value; resetConfirmations(); updateControls();});
     for (const input of root.querySelectorAll('input[name="operation"]')) input.addEventListener('change', () => {state.operations = [...root.querySelectorAll('input[name="operation"]:checked')].map(item => item.value); resetConfirmations(); updateControls();});
     const bind = (id, key, checkbox = false) => get(id).addEventListener(checkbox ? 'change' : 'input', event => {state[key] = checkbox ? event.target.checked : event.target.value; if (['build_schema', 'driver_vu', 'profile'].includes(key)) resetConfirmations(); updateControls();});
-    bind('wizard-build-schema', 'build_schema', true);
-    bind('wizard-confirm-build', 'confirm_build', true); bind('wizard-confirm-delete', 'confirm_delete', true); bind('wizard-delete-text', 'delete_confirmation');
-    bind('wizard-driver-vu', 'driver_vu'); bind('wizard-profile-points', 'profile'); bind('wizard-share-result', 'share_result', true);
-    get('wizard-run-mode').addEventListener('change', event => {state.run_mode = event.target.value; updateControls();});
+    bind('remote-build-schema', 'build_schema', true);
+    bind('remote-confirm-build', 'confirm_build', true); bind('remote-confirm-delete', 'confirm_delete', true); bind('remote-delete-text', 'delete_confirmation');
+    bind('remote-driver-vu', 'driver_vu'); bind('remote-profile-points', 'profile'); bind('remote-share-result', 'share_result', true);
+    get('remote-run-mode').addEventListener('change', event => {state.run_mode = event.target.value; updateControls();});
     for (const radio of root.querySelectorAll('input[name="avu_mode"]')) radio.addEventListener('change', () => {state.avu_mode = radio.value; updateControls();});
     function updateAVU(value) {
       state.max_avu = value;
-      get('wizard-max-avu').value = value;
+      get('remote-max-avu').value = value;
       if (integer(value) && Number(value) >= 1) {
         const configured = (metadata.generic?.autopilot_sequence || []).filter(point => Number.isSafeInteger(point) && point > 0);
-        get('wizard-avu-slider').max = metadata.generic?.avu_max ?? Math.max(1, ...configured, Number(value));
-        get('wizard-avu-slider').value = value;
+        get('remote-avu-slider').max = metadata.generic?.avu_max ?? Math.max(1, ...configured, Number(value));
+        get('remote-avu-slider').value = value;
       }
-      get('wizard-avu-value').value = value;
+      get('remote-avu-value').value = value;
     }
-    get('wizard-max-avu').addEventListener('input', event => updateAVU(event.target.value));
-    get('wizard-avu-slider').addEventListener('input', event => updateAVU(event.target.value));
+    get('remote-max-avu').addEventListener('input', event => updateAVU(event.target.value));
+    get('remote-avu-slider').addEventListener('input', event => updateAVU(event.target.value));
     updateAVU(state.max_avu);
-    if (metadata.generic?.avu_max != null) get('wizard-max-avu').max = metadata.generic.avu_max;
-    get('wizard-back').addEventListener('click', () => {reviewedRequest = null; showStep(step - 1);});
-    get('wizard-next').addEventListener('click', () => {
+    if (metadata.generic?.avu_max != null) get('remote-max-avu').max = metadata.generic.avu_max;
+    get('remote-back').addEventListener('click', () => {reviewedRequest = null; showStep(step - 1);});
+    get('remote-next').addEventListener('click', () => {
       const errors = validate(state, metadata, {scope: ['target', 'connection', 'benchmark'][step]});
       if (errors.length) {showErrors(errors); return;}
       if (step === 2) {
@@ -518,26 +518,26 @@
       }
       showStep(step + 1);
     });
-    get('wizard-preview').addEventListener('click', async () => {
+    get('remote-preview').addEventListener('click', async () => {
       if (busy) return;
       const errors = reviewedRequest ? [] : validate(state, metadata);
       if (errors.length) {showErrors(errors); return;}
-      if (!global.HammerDBWizardMock) {showErrors(['The simulation is unavailable. No request was submitted.']); return;}
+      if (!global.HammerDBRemoteBenchmarkPreview) {showErrors(['The simulation is unavailable. No request was submitted.']); return;}
       const request = reviewedRequest ? JSON.parse(JSON.stringify(reviewedRequest)) : buildRequest(state, metadata);
-      request.request_id = `wizard-simulation-${Date.now()}-${++requestSerial}`;
+      request.request_id = `remote-simulation-${Date.now()}-${++requestSerial}`;
       reviewedRequest = JSON.parse(JSON.stringify(request));
       clearSecrets();
       context = null;
       const token = ++generation;
       setBusy(true);
-      get('wizard-progress').hidden = true;
-      get('wizard-simulated-jobs').replaceChildren();
-      get('wizard-download').hidden = true;
-      get('wizard-retry-status').hidden = true;
+      get('remote-progress').hidden = true;
+      get('remote-simulated-jobs').replaceChildren();
+      get('remote-download').hidden = true;
+      get('remote-retry-status').hidden = true;
       setStatus('Submitting to the in-page simulator only…', 'submitting');
       try {
-        const scenario = get('wizard-scenario').value;
-        if (!adapters.has(scenario)) adapters.set(scenario, global.HammerDBWizardMock.createAdapter({scenario}));
+        const scenario = get('remote-scenario').value;
+        if (!adapters.has(scenario)) adapters.set(scenario, global.HammerDBRemoteBenchmarkPreview.createAdapter({scenario}));
         const adapter = adapters.get(scenario);
         const accepted = await adapter.submit(request);
         if (token !== generation) return;
@@ -549,52 +549,52 @@
       } catch (error) {
         if (token !== generation) return;
         setBusy(false);
-        get('wizard-preview').textContent = 'Try simulated run again';
+        get('remote-preview').textContent = 'Try simulated run again';
         setStatus(error?.code === 'SIMULATED_REJECTION'
           ? 'Simulated request rejected. Check the selected test outcome and plan, then try again deliberately. No real request was submitted.'
           : 'The simulated run could not be started. No real request was submitted.', 'rejected');
       }
     });
-    get('wizard-retry-status').addEventListener('click', () => {if (busy && context) pollSimulation(context);});
-    get('wizard-cancel').addEventListener('click', async () => {
-      if (!busy || !context || get('wizard-cancel').disabled) return;
+    get('remote-retry-status').addEventListener('click', () => {if (busy && context) pollSimulation(context);});
+    get('remote-cancel').addEventListener('click', async () => {
+      if (!busy || !context || get('remote-cancel').disabled) return;
       const ctx = context;
       ctx.token = ++generation;
-      get('wizard-cancel').disabled = true;
-      get('wizard-retry-status').hidden = true;
+      get('remote-cancel').disabled = true;
+      get('remote-retry-status').hidden = true;
       try {
         const cancelled = await ctx.adapter.cancel(ctx.pipeline_id);
         if (ctx.token !== generation) return;
         await completeSimulation(ctx, cancelled);
       } catch (_) {
         if (ctx.token !== generation) return;
-        get('wizard-cancel').disabled = false;
-        get('wizard-retry-status').hidden = false;
+        get('remote-cancel').disabled = false;
+        get('remote-retry-status').hidden = false;
         setStatus('The cancellation response is unavailable. Retry status for the same simulated Pipeline.', 'timeout');
       }
     });
     global.addEventListener?.('pagehide', () => {generation += 1; clearSecrets(); if (downloadURL) URL.revokeObjectURL(downloadURL);});
     selectDatabase();
-    form.hidden = false; get('wizard-loading').hidden = true;
+    form.hidden = false; get('remote-loading').hidden = true;
     return {state, metadata, buildRequest: () => buildRequest(state, metadata), get simulation() {return context?.snapshot || null;}};
   }
   const api = {validate, buildRequest, reviewRequest, deletionTarget, mount};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (global.document) {
-    global.HammerDBWizard = api;
+    global.HammerDBRemoteBenchmark = api;
     const start = async () => {
-      const root = document.getElementById('hdb-pipeline-wizard');
+      const root = document.getElementById('hdb-remote-benchmark');
       if (!root) return;
       try {
         const response = await fetch(root.dataset.configUrl, {cache: 'no-store', credentials: 'same-origin'});
         if (!response.ok) throw new Error('Configuration unavailable');
         const metadata = await response.json();
         if (!Array.isArray(metadata.databases) || !metadata.databases.length) throw new Error('No database configuration');
-        root.wizard = mount(root, metadata);
+        root.remoteBenchmark = mount(root, metadata);
       } catch (_) {
-        root.querySelector('#wizard-form').hidden = true;
+        root.querySelector('#remote-form').hidden = true;
         showSourcePipeline(true);
-        root.querySelector('#wizard-loading').textContent = 'Wizard configuration is unavailable. The existing Pipeline controls remain available below.';
+        root.querySelector('#remote-loading').textContent = 'Remote benchmark configuration is unavailable. The existing Pipeline controls remain available below.';
       }
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();

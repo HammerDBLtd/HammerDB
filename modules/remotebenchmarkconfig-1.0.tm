@@ -1,10 +1,10 @@
-# Read-only presentation metadata for the Stage 1 Pipeline wizard.  These are
+# Read-only native metadata for remote benchmark target configuration. These are
 # existing configuration names, not a second execution/capability validator.
 package require Tcl 9.0
 package require huddle
-package provide wizardconfig 1.0
+package provide remotebenchmarkconfig 1.0
 
-namespace eval wizardconfig {
+namespace eval remotebenchmarkconfig {
     # Loading a client library does not open a database connection.  Keep the
     # error text private: native loader diagnostics can include local paths.
     proc library_status {specification} {
