@@ -60,7 +60,16 @@ proc ashstart {args} {
                 error "Unable to register a persistent ASH Job"
             }
         }
-        if {[hdbjobs onecolumn {SELECT count(*) FROM JOBASHINFO WHERE jobid=$chosen}]} {
+        # A newly initialized Jobs database has JOBMAIN but may not have
+        # JOBASHINFO until the collector initializes its on-disk archive.
+        # Probe sqlite_master first: otherwise the first manual ashstart
+        # always raises "no such table: JOBASHINFO".
+        if {[hdbjobs onecolumn {
+            SELECT count(*) FROM sqlite_master
+            WHERE type='table' AND name='JOBASHINFO'
+        }] && [hdbjobs onecolumn {
+            SELECT count(*) FROM JOBASHINFO WHERE jobid=$chosen
+        }]} {
             error "ASH already has an archive for Job $chosen"
         }
         set ::ashcmd::lastjob $chosen
