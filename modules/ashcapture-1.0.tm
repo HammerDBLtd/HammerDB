@@ -284,9 +284,9 @@ proc ::ashcapture::stop {{state complete}} {
     set key $statekey
     set coordinator ""
     set statekey ""
-    # Clear this after workload VUs finish, before releasing ASH threads;
-    # disabled ASH and the next benchmark must use original VU accounting.
-    catch {tsv::unset application ashcapture_threads}
+    # Do not remove ASH's VU-exclusion marker yet: ashstop may be called
+    # while GUI virtual users are still running. Keep their positions stable
+    # until BOTH ASH infrastructure threads have been released.
     set failure ""
     if {[thread::exists $worker]} {
         if {[catch {thread::send $worker [list ::ashcapture::shutdown $state]} message]} {
@@ -299,6 +299,9 @@ proc ::ashcapture::stop {{state complete}} {
         set native [tsv::get ashcapture worker,$key]
         if {[thread::exists $native]} {catch {thread::release $native}}
     }
+    # Both ASH threads are gone: future virtual-user accounting may now
+    # safely return to the original, unmodified thread list.
+    catch {tsv::unset application ashcapture_threads}
     foreach name [list worker,$key ready,$key error,$key] {
         if {[tsv::exists ashcapture $name]} {tsv::unset ashcapture $name}
     }
