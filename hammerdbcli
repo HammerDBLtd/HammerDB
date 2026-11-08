@@ -212,9 +212,6 @@ tclpy.eval('set hdb_version $hdb_version')
 init_tcl = (r'''\n$cli_common_init\n''')
 tclpy.eval(init_tcl)
 from hammerdb import \*
-ashstart = lambda: tclpy.eval('ashstart')
-ashstop = lambda: tclpy.eval('ashstop')
-ashstatus = lambda: tclpy.eval('ashstatus')
 sys.stdout.flush()
 sys.ps1 = '>>>'"
     } else {
@@ -229,9 +226,6 @@ tclpy.eval('set hdb_version $hdb_version')
 init_tcl = (r'''\n$cli_common_init\n''')
 tclpy.eval(init_tcl)
 from hammerdb import \*
-ashstart = lambda: tclpy.eval('ashstart')
-ashstop = lambda: tclpy.eval('ashstop')
-ashstatus = lambda: tclpy.eval('ashstatus')
 sys.stdout.flush()
 sys.ps1 = '>>>'"
 }
@@ -375,14 +369,8 @@ sys.ps1 = '>>>'"
     expect ">>>"
     send "from hammerdb import *\x0D"
     expect ">>>"
-    # The Python compatibility module is external to this source tree.
-    # Explicitly export ASH wrappers to its interactive/auto-script namespace.
-    send "ashstart = lambda: tclpy.eval('ashstart')\x0D"
-    expect ">>>"
-    send "ashstop = lambda: tclpy.eval('ashstop')\x0D"
-    expect ">>>"
-    send "ashstatus = lambda: tclpy.eval('ashstatus')\x0D"
-    expect ">>>"
+    # Use ASH wrappers from the installed libtclpy/hammerdb.py.
+    # Launcher-level lambdas would override its optional Job ID arguments.
     if { $autostart::autostartap == "true" } { send "runscript(1)\x0D" } else { send "runscript(0)\x0D" }
     send "sys.stdout.flush()\x0D"
     send "sys.ps1 = 'hammerdb>>>'\x0D"
