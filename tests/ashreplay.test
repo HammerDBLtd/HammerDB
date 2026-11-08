@@ -267,6 +267,25 @@ test ashreplay-overtime-cadence-1 {SQL-over-time drilldowns match one AAS for eq
     set result
 } -result {1 1 1 1}
 
+test ashreplay-overtime-bucket-1 {Multiple MySQL-family wait classes share one bucket divisor} -body {
+    set result {}
+    foreach db {mysql maria vsql} {
+        set samples [list \
+            [::ashreplaytest::myrow 0 10 d1 CPU CPU] \
+            [::ashreplaytest::myrow 5 10 d1 wait/synch/mutex/innodb/buf_pool_mutex mutex] \
+            [::ashreplaytest::myrow 10 10 d1 CPU CPU]]
+        set metadata [dict replace [::ashreplaytest::meta] run_start [expr {$::ashreplaytest::base-1}]]
+        set report [::ashreplay::report $db $samples {} $metadata [::ashreplaytest::window 0 15 sql_id d1]]
+        set overtime [dict get $report sql_overtime]
+        set ids [lsort -unique [lmap row $overtime {dict get $row last_id}]]
+        set categories [lsort -unique [lmap row $overtime {dict get $row category}]]
+        set aas 0.0
+        foreach row $overtime {set aas [expr {$aas+double([dict get $row aas])}]}
+        lappend result [list [llength $ids] [expr {abs($aas-1.0)<0.01}] $categories]
+    }
+    set result
+} -result {{1 1 {CPU Mutex}} {1 1 {CPU Mutex}} {1 1 {CPU Mutex}}}
+
 test ashreplay-source-cadence-1 {Chart SQL preserves source-specific sampling weights} -body {
     set pg [::ashreplay::original_sql pg ash]
     set mysql [::ashreplay::original_sql mysql ash]

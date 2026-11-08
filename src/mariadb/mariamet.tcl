@@ -2758,9 +2758,12 @@ namespace eval mariamet {
         ash_time <= FROM_UNIXTIME(\$public(ash,end))
         GROUP BY digest, command ORDER BY total DESC;"
 
-                    set public(sql,sqlovertimeload) "SELECT last_id,
-        TO_DAYS(last_time) as last_day, cnt,
-        TIME_TO_SEC(TIME(last_time)) as last_secs,
+                    # All wait classes in a 15-second bucket must use its last
+                    # sample ID/time, not each class\'s individual last event.
+                    # Otherwise delta changes within a bucket and inflates AAS.
+                    set public(sql,sqlovertimeload) "SELECT MAX(last_id) OVER (PARTITION BY modsecs) as last_id,
+        TO_DAYS(MAX(last_time) OVER (PARTITION BY modsecs)) as last_day, cnt,
+        TIME_TO_SEC(TIME(MAX(last_time) OVER (PARTITION BY modsecs))) as last_secs,
         wait_event_type
         FROM (
         SELECT wait_event_type,
@@ -2790,8 +2793,8 @@ namespace eval mariamet {
         WHERE ash_time > FROM_UNIXTIME(\$public(ash,starttime)) AND \$public(ashsql,sqlovertimeid)
         ) ash
         GROUP BY wait_event_type, modsecs
-        ORDER BY last_time, modsecs
-        ) as last;"
+        ) as last
+        ORDER BY last_id, wait_event_type;"
 
                     set public(sql,stat) ""
 
