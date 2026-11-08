@@ -180,12 +180,12 @@ test ashreplay-mysql-window-1 {All three MySQL-family adapters preserve categori
     set result
 } -result {{2 2 1 1 1 1} {2 2 1 1 1 1} {2 2 1 1 1 1}}
 
-test ashreplay-pg-chart-1 {PostgreSQL chart keeps background CPU classification and native span divisor} -body {
+test ashreplay-pg-chart-1 {PostgreSQL chart keeps background CPU classification and accounts for final second} -body {
     set rows [::ashreplay::query pg ash [::ashreplaytest::pgsamples] {} \
         [::ashreplaytest::meta] [::ashreplaytest::window]]
     set background [::ashreplaytest::where $rows wait_event_type BCPU]
     list [::ashreplaytest::value $background wait_event_type] \
-        [expr {abs([::ashreplaytest::value $background AAS] - 0.067) < 0.0001}]
+        [expr {abs([::ashreplaytest::value $background AAS] - 0.063) < 0.0001}]
 } -result {BCPU 1}
 
 test ashreplay-mysql-chart-1 {MySQL categories are produced by the unchanged desktop CASE expression} -body {
@@ -196,12 +196,87 @@ test ashreplay-mysql-chart-1 {MySQL categories are produced by the unchanged des
     lsort -unique $found
 } -result {CPU File_IO Lock Mutex}
 
-test ashreplay-mysql-chart-2 {The desktop MySQL zero-span divisor is one, regardless of chart bucket} -body {
+test ashreplay-mysql-chart-2 {Single five-second observation has finite AAS in a partial window} -body {
     set samples [list [::ashreplaytest::myrow 5 10 d1 CPU CPU]]
     set rows [::ashreplay::query mysql ash $samples {} [::ashreplaytest::meta] \
         [::ashreplaytest::window]]
     list [llength $rows] [expr {[::ashreplaytest::value [lindex $rows 0] AAS] == 1.0}]
 } -result {1 1}
+
+test ashreplay-chart-cadence-1 {One-second and five-second captures give equivalent two-session AAS} -body {
+    set result {}
+    foreach db {pg mysql maria vsql} {
+        set samples {}
+        if {$db eq "pg"} {set ticks {0 1 2 3 4 5 6 7 8 9 10 11 12 13 14}} else {set ticks {0 5 10}}
+        foreach tick $ticks {
+            foreach pid {10 11} {
+                if {$db eq "pg"} {
+                    lappend samples [::ashreplaytest::pgrow $tick $pid q1 CPU CPU]
+                } else {
+                    lappend samples [::ashreplaytest::myrow $tick $pid d1 CPU CPU]
+                }
+            }
+        }
+        set chart [::ashreplay::query $db ash $samples {} [::ashreplaytest::meta] [::ashreplaytest::window]]
+        set aas 0.0
+        foreach row $chart {set aas [expr {$aas+double([::ashreplaytest::value $row AAS])}]}
+        lappend result [expr {abs($aas-2.0)<0.01}]
+    }
+    set result
+} -result {1 1 1 1}
+
+test ashreplay-chart-cadence-2 {A partial window and a skipped sample respect each provider's native period} -body {
+    set result {}
+    foreach db {pg mysql maria vsql} {
+        set period [expr {$db eq "pg" ? 1 : 5}]
+        if {$db eq "pg"} {
+            set first [::ashreplaytest::pgrow 0 10 q1 CPU CPU]
+            set last [::ashreplaytest::pgrow [expr {2*$period}] 10 q1 CPU CPU]
+        } else {
+            set first [::ashreplaytest::myrow 0 10 d1 CPU CPU]
+            set last [::ashreplaytest::myrow [expr {2*$period}] 10 d1 CPU CPU]
+        }
+        set single [::ashreplay::query $db ash [list $first] {} [::ashreplaytest::meta] [::ashreplaytest::window]]
+        set skipped [::ashreplay::query $db ash [list $first $last] {} [::ashreplaytest::meta] [::ashreplaytest::window]]
+        set sum 0.0
+        foreach row $skipped {set sum [expr {$sum+double([::ashreplaytest::value $row AAS])}]}
+        lappend result [list [expr {[llength $single] == 1 && double([::ashreplaytest::value [lindex $single 0] AAS]) == 1.0}] [expr {abs($sum-2.0/3.0)<0.01}]]
+    }
+    set result
+} -result {{1 1} {1 1} {1 1} {1 1}}
+
+test ashreplay-overtime-cadence-1 {SQL-over-time drilldowns match one AAS for equally active samplers} -body {
+    set result {}
+    foreach db {pg mysql maria vsql} {
+        set samples {}
+        if {$db eq "pg"} {set ticks {0 1 2 3 4 5 6 7 8 9 10 11 12 13 14}; set id q1} else {set ticks {0 5 10}; set id d1}
+        foreach tick $ticks {
+            if {$db eq "pg"} {
+                lappend samples [::ashreplaytest::pgrow $tick 10 $id CPU CPU]
+            } else {
+                lappend samples [::ashreplaytest::myrow $tick 10 $id CPU CPU]
+            }
+        }
+        set metadata [dict replace [::ashreplaytest::meta] run_start [expr {$::ashreplaytest::base-1}]]
+        set report [::ashreplay::report $db $samples {} $metadata [::ashreplaytest::window 0 15 sql_id $id]]
+        set overtime [dict get $report sql_overtime]
+        set aas 0.0
+        foreach row $overtime {set aas [expr {$aas+double([dict get $row aas])}]}
+        lappend result [expr {[llength $overtime]==1 && abs($aas-1.0)<0.01}]
+    }
+    set result
+} -result {1 1 1 1}
+
+test ashreplay-source-cadence-1 {Chart SQL preserves source-specific sampling weights} -body {
+    set pg [::ashreplay::original_sql pg ash]
+    set mysql [::ashreplay::original_sql mysql ash]
+    set maria [::ashreplay::original_sql maria ash]
+    set vsql [::ashreplay::original_sql vsql ash]
+    list [expr {[string first {round(count(*)::numeric/(samples+1),3)} $pg]>=0}] \
+        [expr {[string first {ROUND(COUNT(*)*5.0/(ash.samples+5.0),3)} $mysql]>=0}] \
+        [expr {[string first {ROUND(COUNT(*)*5.0/(ash.samples+5.0),3)} $maria]>=0}] \
+        [expr {$vsql eq $mysql}]
+} -result {1 1 1 1}
 
 test ashreplay-chart-buckets-1 {Chart rows retain server-day seconds and the original aligned bucket bounds} -body {
     set result {}

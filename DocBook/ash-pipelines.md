@@ -24,6 +24,11 @@ sample `pg_stat_activity` or Performance Schema in a new application poller.
 The server-side samplers retain their existing cadence: pg_sentinel's configured
 one-second period and the MySQL-family five-second event. The existing monitor's
 15-second fast / 60-second slow refresh transfers their output into Jobs.
+Chart AAS weights observations using their native sampling period and the observed
+time span plus one period, including partial windows. SQL-over-time also weights
+MySQL-family observations by five seconds. Wait-event shares and raw sample counts
+are unchanged. Archived Jobs retain their originally captured chart values; the
+new chart normalization applies to future chart refreshes.
 Desktop Tk initialization is guarded only when a provider is loaded headlessly.
 The desktop still uses its existing workers, queries, graph and table callbacks.
 

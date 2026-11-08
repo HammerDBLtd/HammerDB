@@ -670,7 +670,10 @@ proc ::ashreplay::overtime_delta {id maxid bucket delta} {
     return [list $maxid $delta]
 }
 
-proc ::ashreplay::overtime_aas {cnt delta} {return [format "%6.3f" [expr {($cnt+0.0)/$delta}]]}
+proc ::ashreplay::overtime_aas {cnt delta {sample_seconds 1}} {
+    # Weight native sample counts without changing the archived raw data.
+    return [format "%6.3f" [expr {($cnt*double($sample_seconds))/max($delta,$sample_seconds)}]]
+}
 proc ::ashreplay::accumulate {aas curval} {return [expr {$aas+$curval}]}
 
 proc ::ashreplay::_shares {rows denominator mode} {
@@ -757,9 +760,10 @@ proc ::ashreplay::report {database samples stats metadata options} {
             if {[llength $text_rows]} {dict set result sql_text [_get [lindex $text_rows 0] $text_column ""]} else {dict set result sql_text ""}
             if {[llength [dict get $result sql_stats]]} {dict set result sql_statistics [stat_values $database [lindex [dict get $result sql_stats] 0]]}
             set overtime {}; set maxid 0; set delta [dict get $contexts $id bucket]
+            set sample_seconds [expr {$database eq "pg" ? 1 : 5}]
             foreach row [dict get $result sql_overtime] {
                 lassign [overtime_delta [dict get $row last_id] $maxid [dict get $contexts $id bucket] $delta] maxid delta
-                dict set row aas [overtime_aas [dict get $row cnt] $delta]
+                dict set row aas [overtime_aas [dict get $row cnt] $delta $sample_seconds]
                 dict set row category [dict get $row wait_event_type]
                 lappend overtime $row
             }

@@ -3258,6 +3258,8 @@ namespace eval pgmet {
       ceil(extract(epoch from sample_time)) as sample_id 
     from ( select max(ash_time) sample_time from pg_active_session_history) as st;"
 
+        # One-second sampling: include the last observation in the elapsed
+        # span, also for a partial or single-sample refresh.
         set public(sql,ash) "with ash as (select ash_time, 
         (case when wait_event_type='CPU' then 
           (case when backend_type='autovacuum launcher' then 'BCPU'
@@ -3270,12 +3272,12 @@ namespace eval pgmet {
                 when backend_type='walsender'    then 'BCPU'
                 when backend_type='walwriter'    then 'BCPU'
                 else 'CPU' end) else wait_event_type end), wait_event, 
-        ceil(extract(epoch from max(ash_time)over()-min(ash_time)over()))::numeric samples, 
+        extract(epoch from max(ash_time)over()-min(ash_time)over())::numeric samples, 
         ceil(extract(epoch from ash_time)) as sample_id, \$public(ash,bucket_secs) bucket 
       from pg_active_session_history where \$public(ash,where) and 
       ash_time >= current_timestamp - interval '\$public(ash,bucket_secs) seconds') 
     select max(to_char(ash_time,'SSSS')) as secs, sample_id, wait_event_type, 
-      round(count(*)::numeric/(case when samples=0 then bucket else samples end),3) as AAS,
+      round(count(*)::numeric/(samples+1),3) as AAS,
       CAST(to_char(ash_time,'SSSS') as INTEGER)/bucket*bucket as beg_secs, 
       (CAST(to_char(ash_time,'SSSS') as INTEGER)/bucket+1)*bucket as end_secs, 
       to_char(current_timestamp,'J') as last_day, to_char(min(ash_time),'J') as first_day 

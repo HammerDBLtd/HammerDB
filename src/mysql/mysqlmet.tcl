@@ -1448,7 +1448,8 @@ namespace eval mysqlmet {
                             }
                         } ;# NEW POINT
                         # AAS
-                        set aas [ expr ( $cnt + 0.0 ) / $delta ]
+                        # Five-second observations must be weighted in SQL-over-time.
+                        set aas [ expr ( $cnt * 5.0 ) / max($delta, 5) ]
                         set aas [ format "%6.3f" $aas]
                         # AAS CURRENT
                         # Set current Vector
@@ -2661,9 +2662,12 @@ namespace eval mysqlmet {
       CEILING(UNIX_TIMESTAMP(sample_time)) as sample_id
     FROM ( SELECT MAX(ash_time) as sample_time FROM hammerdb_ash.active_session_history) as st;"
 
+        # Keep five-second server sampling to reduce observer overhead. AAS
+        # counts each observation as five seconds and includes the final sample
+        # in the observed span; retain subsecond timestamp precision.
         set public(sql,ash) "SELECT MAX(TIME_TO_SEC(TIME(ash.ash_time))) as secs, ash.sample_id,
       ash.wait_event_type,
-      ROUND(COUNT(*)/GREATEST(ash.samples,1),3) as AAS,
+      ROUND(COUNT(*)*5.0/(ash.samples+5.0),3) as AAS,
       FLOOR(TIME_TO_SEC(TIME(ash.ash_time))/ash.bucket)*ash.bucket as beg_secs,
       (FLOOR(TIME_TO_SEC(TIME(ash.ash_time))/ash.bucket)+1)*ash.bucket as end_secs,
       TO_DAYS(NOW()) as last_day, TO_DAYS(MIN(ash.ash_time)) as first_day
@@ -2681,7 +2685,7 @@ namespace eval mysqlmet {
           WHEN wait_event_type = 'CPU' THEN 'CPU'
           ELSE 'Other'
         END as wait_event_type, wait_event,
-        CEILING(UNIX_TIMESTAMP(MAX(ash_time) OVER()) - UNIX_TIMESTAMP(MIN(ash_time) OVER())) as samples,
+        (UNIX_TIMESTAMP(MAX(ash_time) OVER()) - UNIX_TIMESTAMP(MIN(ash_time) OVER())) as samples,
         CEILING(UNIX_TIMESTAMP(ash_time)) as sample_id, \$public(ash,bucket_secs) as bucket
       FROM hammerdb_ash.active_session_history WHERE \$public(ash,where) AND
       ash_time >= DATE_SUB(NOW(), INTERVAL \$public(ash,bucket_secs) SECOND)) ash
