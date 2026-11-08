@@ -54,27 +54,54 @@ available in both Tcl CLI and the Python CLI (through the existing
 `tclpy` bridge); they use **the same native ASH collector**, with no
 new sampler or modification to the Desktop ASH monitor.
 
-Tcl example (`./hammerdbcli tcl`), after configuring the database and
-loading a benchmark driver:
+**Ordinary benchmark scripts are intentionally untouched.** ASH does not
+start for them unless an operator explicitly requests it. Web Service
+Pipelines are different: `collect_ash=1` sets `HAMMERDB_ASH=1` for the
+newer Single/Profile/Compare runner; the existing `vurun` starts ASH
+before benchmark execution and flushes it afterward. Do **not** put
+`ashstart`/`ashstop` in those Pipeline scripts as well, since this
+would run a second collector. The four databases' Tcl/Python
+`*_run_profile` scripts document this in their headers.
+
+To opt into ASH in a **separate manual Tcl script** (`./hammerdbcli tcl`),
+first configure the database with `dbset`/`diset` as normal, then:
 
 ```tcl
-ashstart
-ashstatus
-vurun
-ashstop
-ashstatus
+loadscript
+vuset vu vcpu
+vucreate
+set ash_job [ashstart]
+puts [ashstatus]
+try {
+    set benchmark_job [vurun]
+} finally {
+    # Stop ASH even if the benchmark reports an error.
+    try {puts [ashstop]} finally {vudestroy}
+}
+puts [ashstatus]
 ```
 
-Python example (`./hammerdbcli python`) uses Python command names exposed
-by the CLI bootstrap, not a separately maintained Python collector:
+The corresponding **manual Python CLI** commands (`./hammerdbcli python`)
+use the same Tcl collector, through the existing `tclpy` bridge:
 
 ```python
-ashstart()
-ashstatus()
-vurun()
-ashstop()
-ashstatus()
+loadscript()
+vuset("vu", "vcpu")
+vucreate()
+print(ashstart())
+print(ashstatus())
+try:
+    result = vurun()
+finally:
+    try:
+        print(ashstop())
+    finally:
+        vudestroy()
+print(ashstatus())
 ```
+
+These blocks are **explicit opt-in examples**, not changes to any
+regular HammerDB run script.
 
 `ashstart` creates a persistent Job and reports its ID. A subsequent
 `vurun` reuses this Job ID, rather than creating a second unrelated Job.
